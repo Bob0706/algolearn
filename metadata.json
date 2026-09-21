@@ -1,0 +1,6 @@
+{
+  "name": "AlgoLearn India",
+  "description": "Learn algorithmic trading for Indian stock markets (NSE & BSE) with strategy builder, backtester, and interactive trading simulator.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
