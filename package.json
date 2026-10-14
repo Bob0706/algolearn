@@ -15,7 +15,8 @@
     "ledger:compile": "node blockchain/scripts/compile.mjs",
     "ledger:deploy": "node blockchain/scripts/deploy.mjs",
     "besu:up": "docker compose up -d besu",
-    "besu:down": "docker compose down"
+    "besu:down": "docker compose down",
+    "symbols:sync": "tsx scripts/sync-symbols.ts"
   },
   "dependencies": {
     "@google/genai": "^2.29.1",
@@ -35,6 +36,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
     "solc": "^0.8.28",
+    "tsx": "^4.23.15",
     "typescript": "^5",
     "vitest": "^3.2.7"
   }

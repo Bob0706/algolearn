@@ -10,6 +10,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { fetchHealth, Health } from "@/lib/api";
 
 const LINKS = [
+  { href: "/live", label: "Live Market" },
   { href: "/learn", label: "Learn" },
   { href: "/builder", label: "Strategy Builder" },
   { href: "/backtest", label: "Backtest" },

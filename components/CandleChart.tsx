@@ -4,9 +4,13 @@
 import { useEffect, useRef } from "react";
 import {
   CandlestickSeries, createChart, createSeriesMarkers, IChartApi, ISeriesApi, ISeriesMarkersPluginApi,
-  LineSeries, SeriesMarker, Time,
+  LineSeries, SeriesMarker, Time, UTCTimestamp,
 } from "lightweight-charts";
-import type { OHLCVBar } from "@/lib/types";
+import type { IntradayBar, OHLCVBar } from "@/lib/types";
+
+const IST = 19800;
+/** Daily bars use their date; intraday bars are shifted to IST so the axis shows Indian market hours. */
+const toTime = (b: OHLCVBar | IntradayBar): Time => ("time" in b ? ((b.time + IST) as UTCTimestamp) : (b.date as Time));
 
 export interface ChartMarker {
   date: string;
@@ -19,8 +23,9 @@ export interface ChartMarker {
 export interface ChartLine { data: { date: string; value: number }[]; color: string }
 
 export default function CandleChart({ bars, markers = [], height = 340, follow = false, line }: {
-  bars: OHLCVBar[]; markers?: ChartMarker[]; height?: number; follow?: boolean; line?: ChartLine;
+  bars: (OHLCVBar | IntradayBar)[]; markers?: ChartMarker[]; height?: number; follow?: boolean; line?: ChartLine;
 }) {
+  const intraday = bars.length > 0 && "time" in bars[0];
   const box = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const series = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -37,7 +42,7 @@ export default function CandleChart({ bars, markers = [], height = 340, follow =
       grid: { vertLines: { color: "rgba(128,128,128,0.1)" }, horzLines: { color: "rgba(128,128,128,0.1)" } },
       width: box.current.clientWidth,
       height,
-      timeScale: { borderColor: "rgba(128,128,128,0.25)" },
+      timeScale: { borderColor: "rgba(128,128,128,0.25)", timeVisible: intraday, secondsVisible: false },
       rightPriceScale: { borderColor: "rgba(128,128,128,0.25)" },
     });
     const s = c.addSeries(CandlestickSeries, {
@@ -53,11 +58,11 @@ export default function CandleChart({ bars, markers = [], height = 340, follow =
       c.remove();
       chart.current = null; series.current = null; markerApi.current = null; lineSeries.current = null; fitted.current = false;
     };
-  }, [height]);
+  }, [height, intraday]);
 
   useEffect(() => {
     if (!series.current) return;
-    series.current.setData(bars.map(b => ({ time: b.date as Time, open: b.open, high: b.high, low: b.low, close: b.close })));
+    series.current.setData(bars.map(b => ({ time: toTime(b), open: b.open, high: b.high, low: b.low, close: b.close })));
     const ms: SeriesMarker<Time>[] = [...markers]
       .sort((a, b) => a.date.localeCompare(b.date))
       .map(m => ({ time: m.date as Time, position: m.position, color: m.color, shape: m.shape, text: m.text }));

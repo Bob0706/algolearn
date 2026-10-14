@@ -1,23 +1,23 @@
-// lib/stockService.ts — server-side market data from Yahoo Finance.
+// lib/stockService.ts — validated daily history for backtests and the simulator.
 //
-// If Yahoo is unreachable a deterministic synthetic series can be generated so
-// the app still works offline, but it is ALWAYS labelled source: "synthetic"
-// and the UI shows that these are not real prices. Set ALLOW_SYNTHETIC_DATA=false
-// in production to fail instead.
+// Real NSE/BSE data comes from lib/server/marketFeed.ts (Yahoo or Upstox). Synthetic
+// prices are OFF by default; ALLOW_SYNTHETIC_DATA=true enables a clearly labelled
+// random-walk fallback for offline development only.
 
 import { MarketData, OHLCVBar } from "./types";
 import { hashJson } from "./ledger/canonical";
+import { getDailyBars, MarketDataError } from "./server/marketFeed";
 
 export const PERIODS = ["1mo", "3mo", "6mo", "1y", "2y", "5y"] as const;
 export type Period = (typeof PERIODS)[number];
 
-const SYMBOL_RE = /^\^?[A-Z0-9&\-]{1,20}(\.(NS|BO))?$/;
+const SYMBOL_RE = /^(\^[A-Z0-9]{2,15}|[A-Z0-9&\-]{1,20}\.(NS|BO))$/;
 
 export class InputError extends Error {}
 
 export function validateSymbol(raw: unknown): string {
   const s = String(raw ?? "").trim().toUpperCase();
-  if (!SYMBOL_RE.test(s)) throw new InputError("Invalid symbol. Use an NSE/BSE ticker like RELIANCE.NS or ^NSEI.");
+  if (!SYMBOL_RE.test(s)) throw new InputError("Invalid symbol. Use an NSE ticker like RELIANCE.NS, a BSE scrip like 500325.BO, or an index like ^NSEI.");
   return s;
 }
 
@@ -35,58 +35,17 @@ const BASE_PRICES: Record<string, number> = {
   "^NSEI": 25200, "^BSESN": 82600,
 };
 
-const allowSynthetic = () => (process.env.ALLOW_SYNTHETIC_DATA ?? "true").toLowerCase() !== "false";
-
-async function fetchYahoo(symbol: string, period: Period): Promise<OHLCVBar[] | null> {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${period}&interval=1d&includePrePost=false`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
-  try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: { "User-Agent": "Mozilla/5.0 (AlgoLearn educational backtester)", Accept: "application/json" },
-      next: { revalidate: 300 },
-    });
-    if (!res.ok) return null;
-    const json = await res.json();
-    const result = json?.chart?.result?.[0];
-    const ts: number[] | undefined = result?.timestamp;
-    const q = result?.indicators?.quote?.[0];
-    if (!ts || !q) return null;
-    // Yahoo timestamps are the session open in exchange time; use the exchange's offset for the date.
-    const gmtOffset: number = result?.meta?.gmtoffset ?? 19800;
-    const bars: OHLCVBar[] = [];
-    for (let i = 0; i < ts.length; i++) {
-      const [o, h, l, c] = [q.open?.[i], q.high?.[i], q.low?.[i], q.close?.[i]];
-      if ([o, h, l, c].some(v => v == null || Number.isNaN(v))) continue;
-      const date = new Date((ts[i] + gmtOffset) * 1000).toISOString().slice(0, 10);
-      if (bars.length && bars[bars.length - 1].date === date) bars.pop(); // intraday duplicate of today
-      bars.push({
-        date,
-        open: Math.round(o * 100) / 100,
-        high: Math.round(h * 100) / 100,
-        low: Math.round(l * 100) / 100,
-        close: Math.round(c * 100) / 100,
-        volume: Math.round(q.volume?.[i] ?? 0),
-      });
-    }
-    return bars.length >= 20 ? bars : null;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
+const allowSynthetic = () => (process.env.ALLOW_SYNTHETIC_DATA ?? "false").toLowerCase() === "true";
 
 export async function getMarketData(symbolRaw: unknown, periodRaw: unknown): Promise<MarketData> {
   const symbol = validateSymbol(symbolRaw);
   const period = validatePeriod(periodRaw);
 
-  const real = await fetchYahoo(symbol, period);
-  if (real) return { symbol, period, source: "yahoo", bars: real, dataHash: hashJson(real) };
+  const real = await getDailyBars(symbol, period);
+  if (real) return { symbol, period, source: real.source, bars: real.bars, dataHash: hashJson(real.bars) };
 
   if (!allowSynthetic()) {
-    throw new Error(`Could not fetch market data for ${symbol} from Yahoo Finance. Please try again later.`);
+    throw new MarketDataError(`Live market data for ${symbol} is unavailable right now (the data provider could not be reached or has no history for this stock). Please try again shortly.`);
   }
   console.warn(`[stockService] Yahoo Finance unavailable for ${symbol}; serving SYNTHETIC data`);
   const bars = generateSyntheticBars(symbol, period);

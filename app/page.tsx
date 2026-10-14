@@ -94,7 +94,7 @@ export default function LandingPage() {
 
             {/* Social proof */}
             <div style={{ display: "flex", gap: "2rem", justifyContent: "center", marginTop: "3rem", flexWrap: "wrap" }}>
-              {[["50+", "NSE/BSE symbols"], ["7", "Strategy templates"], ["5 years", "Historical data"], ["₹0", "To start"]].map(([val, label]) => (
+              {[["All", "NSE & BSE stocks"], ["7", "Strategy templates"], ["5 years", "Historical data"], ["₹0", "To start"]].map(([val, label]) => (
                 <div key={label} style={{ textAlign: "center" }}>
                   <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "white" }}>{val}</div>
                   <div style={{ fontSize: "0.8rem", color: "rgba(255,255,255,0.6)", marginTop: 2 }}>{label}</div>
@@ -207,7 +207,7 @@ export default function LandingPage() {
 
           <div className="grid-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px,1fr))" }}>
             {[
-              { icon: Target,   color: "#6366f1", title: "NSE & BSE Focused",       desc: "Real data for NIFTY, SENSEX and 50+ Indian stocks, with STT, stamp duty and brokerage built in." },
+              { icon: Target,   color: "#6366f1", title: "NSE & BSE Focused",       desc: "Live prices and history for every NSE and BSE listed company, with STT, stamp duty and brokerage built in." },
               { icon: Shield,   color: "#10b981", title: "Verifiable Results",       desc: "Backtests, signals and simulator scores are fingerprinted on a Hyperledger Besu blockchain, so they cannot be quietly edited." },
               { icon: Award,    color: "#f59e0b", title: "Beginner Friendly",        desc: "Guided step-by-step system. Zero prior coding or trading knowledge needed." },
             ].map((item) => {

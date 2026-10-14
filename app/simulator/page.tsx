@@ -8,20 +8,21 @@ import {
   Activity, AlertCircle, ArrowDownCircle, ArrowUpCircle, Flag, Gamepad2, Pause, Play, Radio, RotateCcw,
   SkipForward, TrendingDown, TrendingUp, Zap,
 } from "lucide-react";
-import { ApiError, fetchLiveSignal, fetchSymbols, LiveSignal, SimView, startSimulation, stepSimulation } from "@/lib/api";
-import type { CandleSignal, OHLCVBar, StockSymbol } from "@/lib/types";
+import { ApiError, fetchLiveSignal, LiveSignal, SimView, startSimulation, stepSimulation } from "@/lib/api";
+import type { CandleSignal, OHLCVBar } from "@/lib/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { addSimulatorSession } from "@/lib/firebase";
 import CandleChart, { ChartMarker } from "@/components/CandleChart";
 import LedgerReceipts from "@/components/LedgerReceipts";
 import DataSourceBanner from "@/components/DataSourceBanner";
+import SymbolSearch from "@/components/SymbolSearch";
+import LiveQuote from "@/components/LiveQuote";
 
 const INITIAL_CAPITAL = 100000;
 const inr = (v: number) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 
 export default function SimulatorPage() {
   const { user } = useAuth();
-  const [symbols, setSymbols] = useState<StockSymbol[]>([]);
   const [symbol, setSymbol] = useState("RELIANCE.NS");
   const [period, setPeriod] = useState("1y");
   const [view, setView] = useState<SimView | null>(null);
@@ -38,7 +39,8 @@ export default function SimulatorPage() {
   const reported = useRef<string | null>(null);
 
   useEffect(() => {
-    fetchSymbols().then(setSymbols).catch(() => setSymbols([]));
+    const fromUrl = new URLSearchParams(window.location.search).get("symbol");
+    if (fromUrl) setSymbol(fromUrl.toUpperCase());
   }, []);
 
   const reset = useCallback(() => {
@@ -142,14 +144,8 @@ export default function SimulatorPage() {
                 </p>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.9rem" }}>
-                <div className="form-group">
-                  <label className="form-label" htmlFor="ssym">Stock</label>
-                  <select id="ssym" className="form-select" value={symbol} onChange={e => setSymbol(e.target.value)}>
-                    {(symbols.length ? symbols : [{ symbol: "RELIANCE.NS", name: "Reliance Industries", sector: "" }]).map(s => (
-                      <option key={s.symbol} value={s.symbol}>{s.name} ({s.symbol})</option>
-                    ))}
-                  </select>
-                </div>
+                <SymbolSearch id="ssym" value={symbol} onChange={s => { setSymbol(s); setLive(null); }} label="Company / index (any NSE or BSE listing)" />
+                <LiveQuote symbol={symbol} />
                 <div className="form-group">
                   <label className="form-label" htmlFor="sper">Period</label>
                   <select id="sper" className="form-select" value={period} onChange={e => setPeriod(e.target.value)}>

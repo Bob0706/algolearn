@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
     const pf = simulatePortfolio(market.bars, signals.buy, signals.sell, capital, includeCosts ? INDIA_DELIVERY : ZERO_COST);
 
     const warnings = [...signals.warnings];
-    if (market.source === "synthetic") warnings.unshift("Yahoo Finance was unreachable: these results use SYNTHETIC prices, not real market data.");
+    if (market.source === "synthetic") warnings.unshift("Real market data was unreachable and ALLOW_SYNTHETIC_DATA is on: these results use SYNTHETIC prices, not real market data.");
     if (signals.lookahead.uses_future_data) {
       warnings.unshift(`Look-ahead bias detected: this strategy's signals change when future bars are removed (first on ${signals.lookahead.first_mismatch_date}). Its results are not achievable in real trading.`);
     }

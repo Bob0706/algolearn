@@ -5,9 +5,11 @@ import { InputError } from "../stockService";
 import { AuthError } from "./auth";
 import { EngineUnavailableError, StrategyError } from "./engineClient";
 import { rateLimit } from "./rateLimit";
+import { MarketDataError } from "./marketFeed";
 
 export function errorResponse(err: unknown): NextResponse {
   if (err instanceof InputError) return NextResponse.json({ detail: err.message }, { status: 400 });
+  if (err instanceof MarketDataError) return NextResponse.json({ detail: err.message }, { status: 503 });
   if (err instanceof AuthError) return NextResponse.json({ detail: err.message }, { status: 401 });
   if (err instanceof StrategyError)
     return NextResponse.json({ detail: err.message, errors: err.errors, logs: err.logs }, { status: 422 });

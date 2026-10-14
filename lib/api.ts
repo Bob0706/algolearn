@@ -2,7 +2,7 @@
 
 import { getIdToken } from "./firebase";
 import type {
-  BacktestResult, CandleSignal, DataSource, LedgerKind, LedgerReceipt, OHLCVBar, StockSymbol, StrategyTemplate,
+  BacktestResult, CandleSignal, DataSource, Instrument, IntradayBar, LedgerKind, LedgerReceipt, OHLCVBar, Quote, StrategyTemplate,
 } from "./types";
 
 export type * from "./types";
@@ -34,9 +34,25 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 const post = <T>(path: string, body: unknown) => request<T>(path, { method: "POST", body: JSON.stringify(body) });
 
 // ─── market data & templates ──────────────────────────────────────────────
-export async function fetchSymbols(): Promise<StockSymbol[]> {
-  return (await request<{ symbols: StockSymbol[] }>("/api/symbols")).symbols;
+export interface SymbolSearch {
+  results: Instrument[];
+  total: number;
+  counts: { nse: number; nseSme: number; bse: number };
+  complete: boolean;
+  updatedAt: string | null;
+  note?: string;
 }
+
+/** Search every NSE / BSE listing by ticker, BSE code, company name or ISIN. */
+export const searchSymbols = (q: string, exchange = "ALL", limit = 20) =>
+  request<SymbolSearch>(`/api/symbols?q=${encodeURIComponent(q)}&exchange=${exchange}&limit=${limit}`);
+
+export const fetchQuote = (symbol: string) => request<Quote>(`/api/quote?symbol=${encodeURIComponent(symbol)}`);
+
+export const fetchIntraday = (symbol: string, interval: "1m" | "5m" | "15m", days: 1 | 5) =>
+  request<{ symbol: string; interval: string; days: number; source: DataSource; bars: IntradayBar[] }>(
+    `/api/intraday?symbol=${encodeURIComponent(symbol)}&interval=${interval}&days=${days}`,
+  );
 
 export async function fetchStrategyTemplates(): Promise<StrategyTemplate[]> {
   return (await request<{ templates: StrategyTemplate[] }>("/api/strategy-templates")).templates;

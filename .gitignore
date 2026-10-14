@@ -67,3 +67,5 @@ logs/
 
 # Next.js generated
 next-env.d.ts
+
+.market-data/

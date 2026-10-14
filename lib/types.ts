@@ -10,7 +10,7 @@ export interface OHLCVBar {
 }
 
 /** "yahoo" = real exchange data; "synthetic" = generated fallback, never real prices. */
-export type DataSource = "yahoo" | "synthetic";
+export type DataSource = "yahoo" | "upstox" | "synthetic";
 
 export interface MarketData {
   symbol: string;
@@ -84,6 +84,43 @@ export interface BacktestResult {
 }
 
 export interface StockSymbol { symbol: string; name: string; sector: string }
+
+export type Exchange = "NSE" | "BSE" | "INDEX";
+
+/** One tradable listing. `symbol` is the app-wide ticker: RELIANCE.NS, 500325.BO, ^NSEI. */
+export interface Instrument {
+  symbol: string;
+  exchange: Exchange;
+  code: string;          // NSE symbol, BSE scrip code, or index code
+  alias?: string;        // BSE text ticker (scrip id), e.g. RELIANCE for 500325
+  name: string;
+  isin?: string;
+  series?: string;       // NSE series (EQ, BE, SM…) or BSE group (A, B, T…)
+  industry?: string;
+  sme?: boolean;
+}
+
+export interface Quote {
+  symbol: string;
+  name?: string;
+  exchange?: string;
+  currency: string;
+  price: number;
+  previousClose: number;
+  change: number;
+  changePct: number;
+  open?: number;
+  dayHigh?: number;
+  dayLow?: number;
+  volume?: number;
+  asOf: number;          // unix seconds of the last trade
+  marketOpen: boolean;
+  source: "upstox" | "yahoo";
+  delayNote: string;
+}
+
+/** Intraday candle; `time` is unix seconds (UTC). */
+export interface IntradayBar { time: number; open: number; high: number; low: number; close: number; volume: number }
 
 export interface StrategyTemplate {
   id: string;

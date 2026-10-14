@@ -5,14 +5,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, AlertTriangle, BarChart2, Cpu, IndianRupee, Info, Play, Settings, Target, TrendingDown, TrendingUp,
 } from "lucide-react";
-import { ApiError, fetchStrategyTemplates, fetchSymbols, runBacktest } from "@/lib/api";
-import type { BacktestResult, StockSymbol, StrategyTemplate } from "@/lib/types";
+import { ApiError, fetchStrategyTemplates, runBacktest } from "@/lib/api";
+import type { BacktestResult, StrategyTemplate } from "@/lib/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { saveStrategy } from "@/lib/firebase";
 import { takeHandoff } from "@/lib/handoff";
 import CandleChart, { ChartMarker } from "@/components/CandleChart";
 import LedgerReceipts from "@/components/LedgerReceipts";
 import DataSourceBanner from "@/components/DataSourceBanner";
+import SymbolSearch from "@/components/SymbolSearch";
+import LiveQuote from "@/components/LiveQuote";
 
 const PERIODS = [
   { value: "6mo", label: "6 months" },
@@ -38,7 +40,6 @@ function Stat({ label, value, sub, icon: Icon, color }: { label: string; value: 
 
 export default function BacktestPage() {
   const { user } = useAuth();
-  const [symbols, setSymbols] = useState<StockSymbol[]>([]);
   const [templates, setTemplates] = useState<StrategyTemplate[]>([]);
   const [symbol, setSymbol] = useState("RELIANCE.NS");
   const [period, setPeriod] = useState("1y");
@@ -56,7 +57,8 @@ export default function BacktestPage() {
   const [tab, setTab] = useState<"chart" | "equity" | "trades">("chart");
 
   useEffect(() => {
-    fetchSymbols().then(setSymbols).catch(() => setSymbols([]));
+    const fromUrl = new URLSearchParams(window.location.search).get("symbol");
+    if (fromUrl) setSymbol(fromUrl.toUpperCase());
     const handoff = takeHandoff();
     fetchStrategyTemplates().then(ts => {
       setTemplates(ts);
@@ -129,14 +131,8 @@ export default function BacktestPage() {
               <Settings size={17} style={{ color: "var(--accent)" }} /> Settings
             </h2>
             <div style={{ display: "flex", flexDirection: "column", gap: "0.9rem" }}>
-              <div className="form-group">
-                <label className="form-label" htmlFor="sym">Stock / index</label>
-                <select id="sym" className="form-select" value={symbol} onChange={e => setSymbol(e.target.value)}>
-                  {(symbols.length ? symbols : [{ symbol: "RELIANCE.NS", name: "Reliance Industries", sector: "" }]).map(x => (
-                    <option key={x.symbol} value={x.symbol}>{x.name} ({x.symbol})</option>
-                  ))}
-                </select>
-              </div>
+              <SymbolSearch id="sym" value={symbol} onChange={setSymbol} />
+              <LiveQuote symbol={symbol} />
               <div className="grid-2" style={{ gap: "0.6rem" }}>
                 <div className="form-group">
                   <label className="form-label" htmlFor="per">Period</label>
@@ -198,7 +194,7 @@ export default function BacktestPage() {
             {result && s && (
               <>
                 <DataSourceBanner source={result.meta.data_source} />
-                {result.meta.warnings.filter(w => !w.startsWith("Yahoo")).map(w => (
+                {result.meta.warnings.filter(w => !w.includes("SYNTHETIC")).map(w => (
                   <div key={w} className={`alert ${w.startsWith("Look-ahead") ? "alert-danger" : "alert-warning"} small`}>
                     <AlertTriangle size={16} style={{ flexShrink: 0 }} /> {w}
                   </div>
@@ -258,7 +254,7 @@ export default function BacktestPage() {
                     <Cpu size={15} style={{ color: "var(--accent)" }} />
                     <span style={{ fontWeight: 700, fontSize: "0.9rem" }}>How this was computed</span>
                     <span className="badge badge-accent">{result.meta.engine === "python-sandbox" ? "Your Python code (sandbox)" : `Native template: ${result.meta.template_id}`}</span>
-                    <span className={`badge ${result.meta.data_source === "yahoo" ? "badge-success" : "badge-warning"}`}>{result.meta.data_source === "yahoo" ? "Real Yahoo Finance data" : "Synthetic data"}</span>
+                    <span className={`badge ${result.meta.data_source === "synthetic" ? "badge-warning" : "badge-success"}`}>{result.meta.data_source === "synthetic" ? "Synthetic data" : `Real market data (${result.meta.data_source === "upstox" ? "Upstox exchange feed" : "Yahoo Finance"})`}</span>
                     {result.meta.lookahead.checked && (
                       <span className={`badge ${result.meta.lookahead.uses_future_data ? "badge-danger" : "badge-success"}`}>
                         {result.meta.lookahead.uses_future_data ? "Uses future data" : "No look-ahead detected"}

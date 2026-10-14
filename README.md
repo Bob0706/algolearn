@@ -14,6 +14,7 @@ Learn algorithmic trading on Indian markets:
 
 | Module | What happens |
 |---|---|
+| **Live Market** (`/live`) | Search **any company listed on NSE or BSE** (main board, SME and BSE scrips) by ticker, BSE code, name or ISIN. Shows a live price that refreshes every 10s during market hours, a 1m/5m/15m intraday chart, Nifty/Sensex/Bank Nifty tiles, and today's system signal. One click takes you to backtest or practise that stock. |
 | **Strategy Builder** (`/builder`) | Plain English → `run_strategy(df)` Python. Uses Gemini when `GEMINI_API_KEY` is set (hardened prompt, validator, self-correcting retry). Without it, a parser reads indicators and numbers from your text (e.g. "RSI(10) below 25") into one of 7 parametrised templates and tells you exactly how it interpreted you. |
 | **Backtester** (`/backtest`) | Runs **your actual code** in a sandboxed Python engine. Signals fill at the **next bar's open**, with Indian delivery charges (STT, stamp duty, brokerage, exchange/SEBI fees, GST) and slippage. It is compared against buy-and-hold and **automatically checked for look-ahead bias**. |
 | **Simulator** (`/simulator`) | Server-authoritative paper trading. The server reveals candles one at a time (no peeking, no rewinding), fills your orders, and flags candlestick-pattern signals. All signals are committed to the ledger before you see them. A "live signal" panel runs the same engine on today's data. |
@@ -21,13 +22,30 @@ Learn algorithmic trading on Indian markets:
 | **Learn** (`/learn`) | 9 lessons, from candlesticks to backtesting pitfalls, Indian market rules and verifiable track records. |
 | **Dashboard** (`/dashboard`) | Saved strategies (one click to backtest), lesson progress, cumulative simulator stats, and your ledger records. |
 
+## Market data: every NSE & BSE company
+
+| What | Source |
+|---|---|
+| **Company list** | The exchanges' own published lists: NSE [`EQUITY_L.csv`](https://archives.nseindia.com/content/equities/EQUITY_L.csv), NSE SME [`SME_EQUITY_L.csv`](https://archives.nseindia.com/emerge/corporates/content/SME_EQUITY_L.csv), and BSE's active equity scrip list. They are downloaded on first use, cached in `.market-data/universe.json`, and refreshed daily. |
+| **Prices** (`MARKET_DATA_PROVIDER`) | `yahoo` (default): live quotes, 1m/5m/15m intraday candles and up to 5 years of daily history for every `.NS`/`.BO` listing and the main indices. Free, but quotes can lag the exchange by a few minutes. `upstox`: the exchange-licensed NSE/BSE feed through the Upstox API, best for genuine real-time. It needs a free Upstox account; set `UPSTOX_ACCESS_TOKEN` (tokens expire daily) and anything it can't serve falls back to Yahoo. |
+| **Fake prices** | **Off.** If real data can't be fetched, the API returns a clear "data unavailable" error. `ALLOW_SYNTHETIC_DATA=true` re-enables a labelled random-walk fallback for offline development only. |
+
+NSE and BSE don't offer a free official real-time API, and their websites forbid automated scraping, so the app doesn't scrape them. For commercial use, license data from NSE/BSE or an authorised vendor.
+
+Behind a firewall, download the three lists yourself (the BSE list comes from the "List of Scrips" download on bseindia.com, saved as JSON) and import them:
+
+```bash
+npm run symbols:sync                                    # download from NSE/BSE
+npm run symbols:sync -- --nse EQUITY_L.csv --sme SME_EQUITY_L.csv --bse bse.json
+```
+
 ## Architecture
 
 ```
 Browser (Next.js pages)
    │  Firebase ID token (optional)
    ▼
-Next.js API routes ──────────────► Yahoo Finance (daily OHLCV)
+Next.js API routes ──────────────► NSE/BSE company lists · Yahoo Finance / Upstox (quotes, intraday, daily)
    │   │
    │   ├──► Python strategy engine (backend/, FastAPI)
    │   │       AST validator → isolated subprocess (restricted builtins,
@@ -110,7 +128,8 @@ The navbar dot shows the ledger state: green = Besu, amber = local dev ledger, r
 
 ```bash
 npm run engine:test   # 18 tests: sandbox security, limits, look-ahead detection, API
-npm test              # portfolio maths, English parser, Python↔TS template parity, ledger
+npm test              # portfolio maths, English parser, Python↔TS template parity, ledger,
+                      # NSE/BSE list parsing, symbol search, Yahoo/Upstox feed parsing
 # against a running Besu node as well:
 LEDGER_TEST_RPC=http://127.0.0.1:8545 LEDGER_TEST_CONTRACT=0x... npm test
 npm run typecheck && npm run lint && npm run build
@@ -132,7 +151,7 @@ The Besu tests cover:
 | 2 | **Backtests ignored the generated code.** The engine searched the code text for words like "rsi" and ran one of 5 hard-coded strategies. | The real code runs in a sandboxed Python engine. Templates have TypeScript twins that are parity-tested and used only for byte-identical templates when the engine is offline. |
 | 3 | Look-ahead bias: trades filled at the same close that produced the signal. | Fills happen at the next bar's open, and every strategy is re-run on truncated data to detect future peeking. |
 | 4 | No costs, no benchmark. | Indian delivery charges and slippage (toggleable), buy-and-hold benchmark, CAGR, Sharpe, exposure. |
-| 5 | Synthetic prices were silently presented as real NSE data. | Every response says `yahoo` or `synthetic`, and the UI shows a warning banner. `ALLOW_SYNTHETIC_DATA=false` turns synthetic data off. |
+| 5 | Synthetic prices were silently presented as real NSE data, and only 50 hard-coded stocks were available. | Every NSE and BSE listed company is searchable, with live quotes and intraday charts. Synthetic data is off by default and labelled when enabled. |
 | 6 | "Run Backtest" in the Builder (and Dashboard) dropped your code and loaded a default template. | Code is handed over to the backtester. |
 | 7 | Simulator: the full future price series was sent to the browser, a slider allowed rewinding and trading at past prices, and P&L was computed and reported by the client. | Server-authoritative sessions: forward-only reveal, server-side fills and scoring, ledger-backed results. |
 | 8 | Candlestick engine: Morning/Evening Star checks were inverted, and reversal patterns had no trend context. | Patterns corrected, a trend filter added, and the engine versioned (`candlestick-v2`). |
@@ -148,10 +167,11 @@ The Besu tests cover:
 
 - Generate a new platform key, put its address in `permissions_config.toml` and the genesis `alloc`, and run `npm run ledger:deploy` with it. **Never use the public dev key.**
 - Run 4+ Besu validators (`blockchain/besu/generate-network.sh`, `count: 4`). QBFT then tolerates one faulty node. Partner organisations (brokers, colleges) can each run a validator.
-- Set `LEDGER_SUBJECT_SALT`, `ENGINE_API_KEY` and `ALLOW_SYNTHETIC_DATA=false`.
+- Set `LEDGER_SUBJECT_SALT` and `ENGINE_API_KEY`, and keep `ALLOW_SYNTHETIC_DATA=false`.
+- The server needs outbound access to `archives.nseindia.com`, `api.bseindia.com`, `query1/query2.finance.yahoo.com` and, if used, `api.upstox.com`.
 - Keep the engine on an internal network (as in `docker-compose.yml`).
 - Simulator sessions, rate limits and the record store are single-instance (memory and files). Move them to Redis/Postgres before scaling out.
-- Yahoo Finance is an unofficial source; use a licensed NSE/BSE data vendor for anything beyond education.
+- Yahoo Finance is an unofficial source; use Upstox or a licensed NSE/BSE data vendor for anything beyond education.
 
 ## Project layout
 
@@ -163,9 +183,11 @@ lib/
   portfolio.ts          accounting engine (fills, costs, metrics)
   strategyTemplates.ts  7 templates (Python + TS twin) + English parser
   signalEngine.ts       candlestick-pattern signals
-  stockService.ts       Yahoo data, validation, labelled synthetic fallback
+  stockService.ts       validated daily history (synthetic fallback off by default)
   ledger/               AlgoLedger ABI, canonical hashing, Besu/local ledger, record store
-  server/               engine client, auth (Firebase JWT), simulator sessions, rate limiting
+  server/               universe (all NSE/BSE listings), marketFeed (Yahoo/Upstox quotes & candles),
+                        engine client, auth (Firebase JWT), simulator sessions, rate limiting
+scripts/                sync-symbols.ts (download/import NSE & BSE company lists)
 backend/                FastAPI strategy engine (validator, sandbox runner, tests, Dockerfile)
 blockchain/
   contracts/            AlgoLedger.sol
