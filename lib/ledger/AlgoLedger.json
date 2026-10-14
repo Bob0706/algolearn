@@ -1,0 +1,332 @@
+{
+  "contractName": "AlgoLedger",
+  "compiler": "0.8.28+commit.7893614a.Emscripten.clang",
+  "abi": [
+    {
+      "inputs": [],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "id",
+          "type": "bytes32"
+        }
+      ],
+      "name": "AlreadyRecorded",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "InvalidRecord",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "NotOwner",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "NotWriter",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "parent",
+          "type": "bytes32"
+        }
+      ],
+      "name": "UnknownParent",
+      "type": "error"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "previousOwner",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
+      ],
+      "name": "OwnershipTransferred",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "id",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "uint8",
+          "name": "kind",
+          "type": "uint8"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "subject",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes32",
+          "name": "contentHash",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes32",
+          "name": "parent",
+          "type": "bytes32"
+        }
+      ],
+      "name": "Recorded",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "writer",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "bool",
+          "name": "allowed",
+          "type": "bool"
+        }
+      ],
+      "name": "WriterChanged",
+      "type": "event"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "id",
+          "type": "bytes32"
+        }
+      ],
+      "name": "exists",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "id",
+          "type": "bytes32"
+        }
+      ],
+      "name": "get",
+      "outputs": [
+        {
+          "components": [
+            {
+              "internalType": "bytes32",
+              "name": "contentHash",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "subject",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "parent",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "uint8",
+              "name": "kind",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint64",
+              "name": "timestamp",
+              "type": "uint64"
+            },
+            {
+              "internalType": "uint64",
+              "name": "blockNumber",
+              "type": "uint64"
+            },
+            {
+              "internalType": "address",
+              "name": "writer",
+              "type": "address"
+            }
+          ],
+          "internalType": "struct AlgoLedger.Record",
+          "name": "",
+          "type": "tuple"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "owner",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "id",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "uint8",
+          "name": "kind",
+          "type": "uint8"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "contentHash",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "subject",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "parent",
+          "type": "bytes32"
+        }
+      ],
+      "name": "record",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "recordCount",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "writer",
+          "type": "address"
+        },
+        {
+          "internalType": "bool",
+          "name": "allowed",
+          "type": "bool"
+        }
+      ],
+      "name": "setWriter",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
+      ],
+      "name": "transferOwnership",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "id",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "contentHash",
+          "type": "bytes32"
+        }
+      ],
+      "name": "verify",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "writers",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x6080604052348015600f57600080fd5b50600080546001600160a01b031916339081178255808252600160208190526040808420805460ff1916909217909155519091907f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0908290a36040516001815233907f4759a00269085626e6e1450d837be4ca396feb3a3bd6ecdd95089b76c2acddc19060200160405180910390a2610800806100ad6000396000f3fe608060405234801561001057600080fd5b50600436106100935760003560e01c80638e7e80a2116100665780638e7e80a2146101335780638eaa6ac014610156578063900407bc14610291578063ab1359cf146102a8578063f2fde38b146102bb57600080fd5b80631f91b39f1461009857806338a699a4146100ad5780634e8fee00146100f55780638da5cb5b14610108575b600080fd5b6100ab6100a63660046106ea565b6102ce565b005b6100e06100bb366004610726565b60009081526002602052604090206003015461010090046001600160401b0316151590565b60405190151581526020015b60405180910390f35b6100e061010336600461073f565b610358565b60005461011b906001600160a01b031681565b6040516001600160a01b0390911681526020016100ec565b6100e0610141366004610761565b60016020526000908152604090205460ff1681565b61021e610164366004610726565b6040805160e081018252600080825260208201819052918101829052606081018290526080810182905260a0810182905260c081019190915250600090815260026020818152604092839020835160e081018552815481526001820154928101929092529182015492810192909252600381015460ff811660608401526001600160401b0361010082048116608085015269010000000000000000009091041660a0830152600401546001600160a01b031660c082015290565b6040516100ec9190600060e08201905082518252602083015160208301526040830151604083015260ff60608401511660608301526001600160401b0360808401511660808301526001600160401b0360a08401511660a083015260018060a01b0360c08401511660c083015292915050565b61029a60035481565b6040519081526020016100ec565b6100ab6102b636600461077c565b61039a565b6100ab6102c9366004610761565b610621565b6000546001600160a01b031633146102f9576040516330cd747160e01b815260040160405180910390fd5b6001600160a01b038216600081815260016020908152604091829020805460ff191685151590811790915591519182527f4759a00269085626e6e1450d837be4ca396feb3a3bd6ecdd95089b76c2acddc1910160405180910390a25050565b60008281526002602052604081206003015461010090046001600160401b031615801590610393575060008381526002602052604090205482145b9392505050565b3360009081526001602052604090205460ff166103ca57604051630751a1cd60e41b815260040160405180910390fd5b8415806103d5575082155b806103e35750600460ff8516115b156104015760405163f2a3e8db60e01b815260040160405180910390fd5b60008581526002602052604090206003015461010090046001600160401b03161561044657604051622d326160e51b8152600481018690526024015b60405180910390fd5b8015801590610472575060008181526002602052604090206003015461010090046001600160401b0316155b1561049357604051630c45b2fb60e21b81526004810182905260240161043d565b6040518060e001604052808481526020018381526020018281526020018560ff168152602001426001600160401b03168152602001436001600160401b03168152602001336001600160a01b03168152506002600087815260200190815260200160002060008201518160000155602082015181600101556040820151816002015560608201518160030160006101000a81548160ff021916908360ff16021790555060808201518160030160016101000a8154816001600160401b0302191690836001600160401b0316021790555060a08201518160030160096101000a8154816001600160401b0302191690836001600160401b0316021790555060c08201518160040160006101000a8154816001600160a01b0302191690836001600160a01b03160217905550905050600360008154809291906001019190505550818460ff16867f6cba2ca933f09661b65db713e8e292fca72fa1f868bfd9576972226dbfe5abab8685604051610612929190918252602082015260400190565b60405180910390a45050505050565b6000546001600160a01b0316331461064c576040516330cd747160e01b815260040160405180910390fd5b6001600160a01b0381166106735760405163f2a3e8db60e01b815260040160405180910390fd5b600080546040516001600160a01b03808516939216917f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e091a3600080546001600160a01b0319166001600160a01b0392909216919091179055565b80356001600160a01b03811681146106e557600080fd5b919050565b600080604083850312156106fd57600080fd5b610706836106ce565b91506020830135801515811461071b57600080fd5b809150509250929050565b60006020828403121561073857600080fd5b5035919050565b6000806040838503121561075257600080fd5b50508035926020909101359150565b60006020828403121561077357600080fd5b610393826106ce565b600080600080600060a0868803121561079457600080fd5b85359450602086013560ff811681146107ac57600080fd5b9497949650505050604083013592606081013592608090910135915056fea2646970667358221220110f1c2879c595e219a1d928d0941e6aa1be428774f6b726fc0b153096979bef64736f6c634300081c0033"
+}

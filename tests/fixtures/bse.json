@@ -1,0 +1,6 @@
+[
+  {"SCRIP_CD":"500325","Scrip_Name":"Reliance Industries Ltd","Status":"Active","GROUP":"A ","FACE_VALUE":"10.00","ISIN_NUMBER":"INE002A01018","INDUSTRY":"Refineries & Marketing","scrip_id":"RELIANCE","Segment":"Equity","Issuer_Name":"Reliance Industries Ltd"},
+  {"SCRIP_CD":"500570","Scrip_Name":"Tata Motors Ltd","Status":"Active","GROUP":"A ","ISIN_NUMBER":"INE155A01022","INDUSTRY":"Passenger Cars & Utility Vehicles","scrip_id":"TATAMOTORS","Segment":"Equity","Issuer_Name":"Tata Motors Ltd"},
+  {"SCRIP_CD":"543287","Scrip_Name":"Small Bse Only Co","Status":"Active","GROUP":"X ","ISIN_NUMBER":"INE999Z01011","INDUSTRY":"Textiles","scrip_id":"SMALLBSE","Segment":"Equity","Issuer_Name":"Small BSE Only Company Ltd"},
+  {"SCRIP_CD":"500001","Scrip_Name":"Delisted Co","Status":"Delisted","GROUP":"Z ","ISIN_NUMBER":"INE000A00000","scrip_id":"GONE","Segment":"Equity"}
+]

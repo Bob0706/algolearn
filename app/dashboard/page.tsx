@@ -1,234 +1,157 @@
 "use client";
-// app/dashboard/page.tsx — User Dashboard
+// app/dashboard/page.tsx — user dashboard
 
-import { useState, useEffect } from "react";
-import { useAuth } from "@/contexts/AuthContext";
-import { getUserStrategies, getUserDoc, signInWithGoogle } from "@/lib/firebase";
-import {
-  LayoutDashboard, TrendingUp, Target, Award, BookOpen,
-  Zap, LogIn, Copy, Check, Trash2, BarChart2
-} from "lucide-react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { BarChart2, BookOpen, Check, Copy, LayoutDashboard, LogIn, ShieldCheck, Target, TrendingUp, Zap } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { getUserDoc, getUserStrategies, SavedStrategy, UserDoc } from "@/lib/firebase";
+import { fetchRecords, LedgerRecordView } from "@/lib/api";
+import { setHandoff } from "@/lib/handoff";
+import { LESSONS } from "@/lib/lessons";
+
+const KIND_LABEL: Record<string, string> = {
+  STRATEGY: "Strategy", BACKTEST: "Backtest", SIMULATION_RESULT: "Simulation", SIGNAL_BATCH: "Signals", LIVE_SIGNAL: "Live signal",
+};
 
 export default function DashboardPage() {
-  const { user, loading } = useAuth();
-  const [strategies, setStrategies] = useState<any[]>([]);
-  const [userData,   setUserData]   = useState<any>(null);
-  const [copied,     setCopied]     = useState<string | null>(null);
-  const [dataLoading,setDataLoading] = useState(false);
+  const router = useRouter();
+  const { user, loading, signIn, demoMode } = useAuth();
+  const [strategies, setStrategies] = useState<SavedStrategy[]>([]);
+  const [userData, setUserData] = useState<UserDoc | null>(null);
+  const [records, setRecords] = useState<LedgerRecordView[]>([]);
+  const [copied, setCopied] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     if (!user) return;
-    setDataLoading(true);
-    Promise.all([
-      getUserStrategies(user.uid),
-      getUserDoc(user.uid),
-    ]).then(([strats, ud]) => {
-      setStrategies(strats);
-      setUserData(ud);
-    }).finally(() => setDataLoading(false));
+    setBusy(true);
+    Promise.all([getUserStrategies(user), getUserDoc(user), user.isDemo ? Promise.resolve({ records: [] }) : fetchRecords({ mine: true, limit: 20 })])
+      .then(([s, d, r]) => { setStrategies(s); setUserData(d); setRecords(r.records); })
+      .catch(e => setError(e?.message || "Could not load your data."))
+      .finally(() => setBusy(false));
   }, [user]);
 
-  const handleCopy = (code: string, id: string) => {
-    navigator.clipboard.writeText(code);
-    setCopied(id);
-    setTimeout(() => setCopied(null), 2000);
-  };
-
-  if (loading) {
-    return (
-      <div className="page" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <span className="spinner spinner-lg" />
-      </div>
-    );
-  }
+  if (loading) return <div className="page" style={{ display: "grid", placeItems: "center" }}><span className="spinner spinner-lg" /></div>;
 
   if (!user) {
     return (
       <div className="page">
-        <div className="container" style={{ paddingTop: "5rem", textAlign: "center" }}>
-          <div style={{ maxWidth: 440, margin: "0 auto" }}>
-            <div style={{ width: 72, height: 72, borderRadius: "50%", background: "var(--accent-light)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1.5rem" }}>
-              <LayoutDashboard size={32} style={{ color: "var(--accent)" }} />
-            </div>
-            <h2 style={{ fontWeight: 800, fontSize: "1.5rem", marginBottom: "0.75rem" }}>Sign In to Access Dashboard</h2>
-            <p style={{ color: "var(--text-secondary)", marginBottom: "2rem" }}>
-              Save your strategies, track learning progress, and view your simulator stats.
-            </p>
-            <button className="btn btn-primary btn-lg" onClick={() => signInWithGoogle()}>
-              <LogIn size={18} /> Sign In with Google
-            </button>
-          </div>
+        <div className="container" style={{ paddingTop: "5rem", textAlign: "center", maxWidth: 480 }}>
+          <LayoutDashboard size={40} style={{ color: "var(--accent)", margin: "0 auto 1rem" }} />
+          <h1 style={{ fontWeight: 800, fontSize: "1.5rem" }}>Sign in to see your dashboard</h1>
+          <p className="muted" style={{ margin: "0.75rem 0 1.5rem" }}>Save strategies, track lessons and simulator stats, and see your verified ledger records.</p>
+          <button className="btn btn-primary btn-lg" onClick={signIn}><LogIn size={18} /> {demoMode ? "Start demo account" : "Sign in with Google"}</button>
         </div>
       </div>
     );
   }
 
-  const lessonsCompleted = userData?.lessonsCompleted?.length ?? 0;
-  const simStats         = userData?.simulatorStats ?? { totalTrades: 0, wins: 0, losses: 0, totalPnL: 0 };
-  const winRate          = simStats.totalTrades > 0 ? ((simStats.wins / (simStats.wins + simStats.losses)) * 100).toFixed(0) : "—";
+  const lessonsDone = userData?.lessonsCompleted.length ?? 0;
+  const st = userData?.simulatorStats ?? { sessions: 0, totalTrades: 0, wins: 0, losses: 0, totalPnL: 0 };
+  const closed = st.wins + st.losses;
+  const winRate = closed > 0 ? `${Math.round((st.wins / closed) * 100)}%` : "—";
+
+  const copy = async (code: string, id: string) => {
+    await navigator.clipboard.writeText(code);
+    setCopied(id);
+    setTimeout(() => setCopied(null), 1500);
+  };
 
   return (
     <div className="page">
       <div className="container" style={{ paddingTop: "2rem", paddingBottom: "3rem" }}>
-        {/* Welcome Header */}
-        <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "2rem" }}>
-          {user.photoURL && (
-            <img src={user.photoURL} alt="" style={{ width: 52, height: 52, borderRadius: "50%", border: "2px solid var(--accent)" }} />
-          )}
+        <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1.5rem" }}>
+          {user.photoURL && <img src={user.photoURL} alt="" width={48} height={48} style={{ borderRadius: "50%" }} />}
           <div>
-            <h1 className="page-title">Welcome, {user.displayName?.split(" ")[0]}!</h1>
-            <p className="page-subtitle">Here&apos;s your algo trading progress dashboard</p>
+            <h1 className="page-title">Welcome, {user.displayName?.split(" ")[0] ?? "trader"}!</h1>
+            <p className="page-subtitle">{user.isDemo ? "Demo account: your data is stored only in this browser." : "Your algo-trading progress."}</p>
           </div>
         </div>
+        {error && <div className="alert alert-danger small" style={{ marginBottom: "1rem" }}>{error}</div>}
 
-        {/* Stats Grid */}
-        <div className="stats-grid" style={{ marginBottom: "2rem" }}>
+        <div className="stats-grid" style={{ marginBottom: "1.5rem" }}>
           <div className="stat-card">
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
-              <BookOpen size={16} style={{ color: "var(--accent)" }} />
-              <span className="stat-label">Lessons Done</span>
-            </div>
-            <div className="stat-value" style={{ color: "var(--accent)" }}>{lessonsCompleted}<span style={{ fontSize: "1rem", color: "var(--text-muted)" }}>/9</span></div>
-            <div className="stat-change">{Math.round(lessonsCompleted / 9 * 100)}% complete</div>
+            <span className="stat-label"><BookOpen size={13} style={{ display: "inline" }} /> Lessons</span>
+            <div className="stat-value" style={{ color: "var(--accent)" }}>{lessonsDone}<span className="muted" style={{ fontSize: "1rem" }}>/{LESSONS.length}</span></div>
+            <div className="progress-bar" style={{ marginTop: "0.4rem" }}><div className="progress-bar-fill" style={{ width: `${(lessonsDone / LESSONS.length) * 100}%` }} /></div>
           </div>
-
           <div className="stat-card">
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
-              <Zap size={16} style={{ color: "var(--warning)" }} />
-              <span className="stat-label">Strategies Saved</span>
-            </div>
+            <span className="stat-label"><Zap size={13} style={{ display: "inline" }} /> Strategies saved</span>
             <div className="stat-value" style={{ color: "var(--warning)" }}>{strategies.length}</div>
-            <div className="stat-change">strategies built</div>
           </div>
-
           <div className="stat-card">
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
-              <Target size={16} style={{ color: "var(--success)" }} />
-              <span className="stat-label">Sim Win Rate</span>
-            </div>
-            <div className="stat-value" style={{ color: "var(--success)" }}>{winRate}{winRate !== "—" ? "%" : ""}</div>
-            <div className="stat-change">{simStats.wins}W / {simStats.losses}L</div>
+            <span className="stat-label"><Target size={13} style={{ display: "inline" }} /> Simulator win rate</span>
+            <div className="stat-value" style={{ color: "var(--success)" }}>{winRate}</div>
+            <div className="stat-change">{st.wins}W / {st.losses}L across {st.sessions} session{st.sessions === 1 ? "" : "s"}</div>
           </div>
-
           <div className="stat-card">
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
-              <TrendingUp size={16} style={{ color: simStats.totalPnL >= 0 ? "var(--success)" : "var(--danger)" }} />
-              <span className="stat-label">Sim Total P&L</span>
-            </div>
-            <div className={`stat-value ${simStats.totalPnL >= 0 ? "positive" : "negative"}`}>
-              {simStats.totalPnL >= 0 ? "+" : ""}₹{simStats.totalPnL.toFixed(0)}
-            </div>
-            <div className="stat-change">{simStats.totalTrades} total trades</div>
+            <span className="stat-label"><TrendingUp size={13} style={{ display: "inline" }} /> Simulator total P&L</span>
+            <div className={`stat-value ${st.totalPnL >= 0 ? "positive" : "negative"}`}>{st.totalPnL >= 0 ? "+" : ""}₹{Math.round(st.totalPnL).toLocaleString("en-IN")}</div>
+            <div className="stat-change">{st.totalTrades} orders</div>
           </div>
         </div>
 
-        {/* Quick Actions */}
-        <div className="card" style={{ marginBottom: "2rem" }}>
-          <h3 className="card-title" style={{ marginBottom: "1rem" }}>Quick Actions</h3>
-          <div className="grid-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px,1fr))" }}>
-            {[
-              { label: "Continue Learning", href: "/learn",     icon: BookOpen,     color: "#6366f1" },
-              { label: "Build Strategy",    href: "/builder",   icon: Zap,          color: "#8b5cf6" },
-              { label: "Run Backtest",      href: "/backtest",  icon: BarChart2,    color: "#06b6d4" },
-              { label: "Start Simulation",  href: "/simulator", icon: TrendingUp,   color: "#10b981" },
-            ].map(action => {
-              const Icon = action.icon;
-              return (
-                <Link key={action.href} href={action.href} style={{ textDecoration: "none" }}>
-                  <div
-                    className="card card-interactive"
-                    style={{ textAlign: "center", padding: "1.25rem 0.75rem", cursor: "pointer" }}
-                  >
-                    <div style={{ width: 40, height: 40, borderRadius: 12, background: `${action.color}18`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 0.75rem" }}>
-                      <Icon size={20} style={{ color: action.color }} />
-                    </div>
-                    <div style={{ fontSize: "0.85rem", fontWeight: 700 }}>{action.label}</div>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Learning Progress */}
-        <div className="card" style={{ marginBottom: "2rem" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
-            <h3 className="card-title">Learning Progress</h3>
-            <Link href="/learn" className="btn btn-secondary btn-sm">View Lessons</Link>
-          </div>
-          <div className="progress-bar" style={{ height: 10 }}>
-            <div className="progress-bar-fill" style={{ width: `${(lessonsCompleted / 9) * 100}%` }} />
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.5rem" }}>
-            <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>{lessonsCompleted} lessons completed</span>
-            <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>{9 - lessonsCompleted} remaining</span>
-          </div>
-          {lessonsCompleted === 9 && (
-            <div className="badge badge-success" style={{ marginTop: "0.75rem" }}>
-              <Award size={13} /> 🎉 All lessons completed!
+        <div className="two-col">
+          <div className="card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+              <h2 className="card-title">Saved strategies</h2>
+              <Link href="/builder" className="btn btn-primary btn-sm"><Zap size={13} /> New</Link>
             </div>
-          )}
-        </div>
-
-        {/* Saved Strategies */}
-        <div className="card">
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
-            <h3 className="card-title">Saved Strategies ({strategies.length})</h3>
-            <Link href="/builder" className="btn btn-primary btn-sm">
-              <Zap size={13} /> Build New
-            </Link>
-          </div>
-
-          {dataLoading ? (
-            <div style={{ textAlign: "center", padding: "2rem" }}>
-              <span className="spinner" style={{ margin: "0 auto" }} />
-            </div>
-          ) : strategies.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "2.5rem", color: "var(--text-muted)" }}>
-              <Zap size={32} style={{ margin: "0 auto 0.75rem", opacity: 0.4 }} />
-              <div style={{ fontWeight: 600, marginBottom: "0.35rem" }}>No strategies saved yet</div>
-              <div style={{ fontSize: "0.85rem" }}>Go to the Strategy Builder to create your first strategy!</div>
-              <Link href="/builder" className="btn btn-primary btn-sm" style={{ marginTop: "1rem", display: "inline-flex" }}>
-                Build Strategy
-              </Link>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              {strategies.map((s: any) => (
-                <div key={s.id} className="card" style={{ padding: "1rem", border: "1px solid var(--border-subtle)" }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.75rem" }}>
+            {busy ? <span className="spinner" /> : !strategies.length ? (
+              <p className="small muted">Nothing saved yet. Build a strategy, then press Save.</p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                {strategies.map(s => (
+                  <div key={s.id} style={{ border: "1px solid var(--border-subtle)", borderRadius: 10, padding: "0.75rem", display: "flex", gap: "0.6rem", alignItems: "flex-start" }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.2rem" }}>{s.name}</div>
-                      {s.description && <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginBottom: "0.4rem" }}>{s.description}</div>}
-                      {s.symbol && (
-                        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
-                          <span className="badge badge-accent">{s.symbol}</span>
-                          {s.backtestResult && (
-                            <span className={`badge ${s.backtestResult.total_return_pct >= 0 ? "badge-success" : "badge-danger"}`}>
-                              {s.backtestResult.total_return_pct >= 0 ? "+" : ""}{s.backtestResult.total_return_pct?.toFixed(1)}% return
-                            </span>
-                          )}
-                        </div>
-                      )}
+                      <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{s.name}</div>
+                      <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginTop: "0.3rem" }}>
+                        {s.symbol && <span className="badge badge-accent">{s.symbol}</span>}
+                        {typeof s.backtestResult?.total_return_pct === "number" && (
+                          <span className={`badge ${(s.backtestResult.total_return_pct as number) >= 0 ? "badge-success" : "badge-danger"}`}>
+                            {(s.backtestResult.total_return_pct as number).toFixed(1)}% backtested
+                          </span>
+                        )}
+                        {s.ledgerId && <Link href={`/ledger/${s.ledgerId}`} className="badge badge-success"><ShieldCheck size={11} /> on ledger</Link>}
+                      </div>
                     </div>
-                    <div style={{ display: "flex", gap: "0.35rem", flexShrink: 0 }}>
-                      <button
-                        className="btn-icon"
-                        onClick={() => handleCopy(s.code, s.id)}
-                        title="Copy code"
-                      >
-                        {copied === s.id ? <Check size={14} style={{ color: "var(--success)" }} /> : <Copy size={14} />}
-                      </button>
-                      <Link href="/backtest" className="btn-icon" title="Backtest this strategy">
-                        <BarChart2 size={14} />
-                      </Link>
-                    </div>
+                    <button className="btn-icon" title="Copy code" onClick={() => copy(s.code, s.id)}>{copied === s.id ? <Check size={14} /> : <Copy size={14} />}</button>
+                    <button className="btn-icon" title="Backtest this strategy" onClick={() => { setHandoff({ code: s.code, name: s.name }); router.push("/backtest"); }}>
+                      <BarChart2 size={14} />
+                    </button>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+              <h2 className="card-title">My ledger records</h2>
+              <Link href="/ledger" className="btn btn-secondary btn-sm">Explorer</Link>
             </div>
-          )}
+            {user.isDemo ? (
+              <p className="small muted">Demo accounts are anonymous, so records can't be attributed to you. Configure Firebase and sign in with Google.</p>
+            ) : !records.length ? (
+              <p className="small muted">Run a backtest or finish a simulation to create verifiable records.</p>
+            ) : (
+              <table className="table">
+                <tbody>
+                  {records.map(r => (
+                    <tr key={r.id}>
+                      <td><span className="badge badge-muted">{KIND_LABEL[r.kind]}</span></td>
+                      <td className="small">{r.content?.symbol ?? ""} {typeof r.content?.total_return_pct === "number" ? `${r.content.total_return_pct}%` : typeof r.content?.returnPct === "number" ? `${r.content.returnPct}%` : ""}</td>
+                      <td className="small muted">{new Date(r.createdAt).toLocaleDateString("en-IN")}</td>
+                      <td><Link href={`/ledger/${r.id}`} className="small">verify →</Link></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
       </div>
     </div>

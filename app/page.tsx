@@ -4,7 +4,7 @@
 import Link from "next/link";
 import {
   TrendingUp, BookOpen, Zap, BarChart2, Gamepad2, Shield,
-  ArrowRight, CheckCircle, Star, ChevronRight, Brain, Target, Award
+  ArrowRight, Star, ChevronRight, Brain, Target, Award
 } from "lucide-react";
 
 const FEATURES = [
@@ -13,7 +13,7 @@ const FEATURES = [
     color: "#6366f1",
     bg: "rgba(99,102,241,0.12)",
     title: "Structured Learning",
-    desc: "8 bite-sized lessons from absolute basics to advanced strategies. No finance background needed.",
+    desc: "9 short lessons from candlesticks to backtesting pitfalls. No finance background needed.",
     link: "/learn",
   },
   {
@@ -21,7 +21,7 @@ const FEATURES = [
     color: "#8b5cf6",
     bg: "rgba(139,92,246,0.12)",
     title: "AI Strategy Builder",
-    desc: "Describe your trading idea in plain English — our AI writes the Python code for you instantly.",
+    desc: "Describe your trading idea in plain English and get Python code that runs in a secure sandbox.",
     link: "/builder",
   },
   {
@@ -29,7 +29,7 @@ const FEATURES = [
     color: "#06b6d4",
     bg: "rgba(6,182,212,0.12)",
     title: "Real Data Backtester",
-    desc: "Test your strategy against real NSE/BSE historical data and see how it would have performed.",
+    desc: "Test your exact code on NSE/BSE history with next-day fills, Indian charges, a buy-and-hold benchmark and look-ahead detection.",
     link: "/backtest",
   },
   {
@@ -37,22 +37,24 @@ const FEATURES = [
     color: "#10b981",
     bg: "rgba(16,185,129,0.12)",
     title: "Trade Simulator",
-    desc: "Practice buy/sell decisions on past chart data with a virtual ₹1,00,000 portfolio. Risk-free!",
+    desc: "Trade a past chart candle by candle with ₹1,00,000 of virtual money while the system flags pattern signals.",
     link: "/simulator",
   },
 ];
 
 const STRATEGIES = [
-  { name: "Moving Average Crossover", level: "Beginner", return: "+24.3%" },
-  { name: "RSI Mean Reversion",       level: "Beginner", return: "+18.7%" },
-  { name: "MACD Strategy",            level: "Intermediate", return: "+31.2%" },
-  { name: "Bollinger Bands",          level: "Intermediate", return: "+22.8%" },
+  { name: "Moving Average Crossover", level: "Beginner" },
+  { name: "RSI Mean Reversion",       level: "Beginner" },
+  { name: "MACD Crossover",           level: "Intermediate" },
+  { name: "Bollinger Bands",          level: "Intermediate" },
+  { name: "Donchian Breakout",        level: "Intermediate" },
+  { name: "Supertrend",               level: "Intermediate" },
 ];
 
 const STEPS = [
   { num: "01", title: "Learn the Basics",    desc: "Go through our structured lessons — no coding or finance background required." },
-  { num: "02", title: "Describe Your Idea",  desc: "Tell us what strategy you want in plain English. Our AI generates the Python code." },
-  { num: "03", title: "Backtest It",         desc: "Run your strategy on real NSE/BSE data and see performance stats instantly." },
+  { num: "02", title: "Describe Your Idea",  desc: "Tell us your strategy in plain English. We generate Python code you can read and edit." },
+  { num: "03", title: "Backtest It",         desc: "Run it on real NSE/BSE data and compare it honestly with buy & hold." },
   { num: "04", title: "Simulate & Practice", desc: "Practice on past charts with a virtual portfolio before using real money." },
 ];
 
@@ -68,7 +70,7 @@ export default function LandingPage() {
         <div className="container" style={{ width: "100%" }}>
           <div className="hero-content">
             <div className="hero-badge">
-              <Star size={12} fill="currentColor" /> India&apos;s #1 Algo Trading Learning Platform
+              <Star size={12} fill="currentColor" /> Learn algo trading · Results verifiable on Hyperledger Besu
             </div>
 
             <h1 className="hero-title">
@@ -92,7 +94,7 @@ export default function LandingPage() {
 
             {/* Social proof */}
             <div style={{ display: "flex", gap: "2rem", justifyContent: "center", marginTop: "3rem", flexWrap: "wrap" }}>
-              {[["10,000+", "Students"], ["50+", "Strategies"], ["5 Years", "Historical Data"], ["₹0", "To Start"]].map(([val, label]) => (
+              {[["All", "NSE & BSE stocks"], ["7", "Strategy templates"], ["5 years", "Historical data"], ["₹0", "To start"]].map(([val, label]) => (
                 <div key={label} style={{ textAlign: "center" }}>
                   <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "white" }}>{val}</div>
                   <div style={{ fontSize: "0.8rem", color: "rgba(255,255,255,0.6)", marginTop: 2 }}>{label}</div>
@@ -165,7 +167,7 @@ export default function LandingPage() {
           <div className="section-header">
             <div className="section-tag">Ready-to-Use Strategies</div>
             <h2 className="section-title">Pre-Built Strategies to Get You Started</h2>
-            <p className="section-subtitle">Use our library of proven strategies or build your own with AI.</p>
+            <p className="section-subtitle">Start from a template, then backtest it yourself on the stock and period you choose. No cherry-picked returns.</p>
           </div>
 
           <div style={{ display: "grid", gap: "0.75rem", maxWidth: 700, margin: "0 auto" }}>
@@ -179,8 +181,7 @@ export default function LandingPage() {
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-                  <span className="badge badge-success">{s.return} backtested</span>
-                  <Link href="/builder" style={{ color: "var(--accent)", fontSize: "0.8rem", fontWeight: 600 }}>
+                  <Link href="/backtest" style={{ color: "var(--accent)", fontSize: "0.8rem", fontWeight: 600 }}>
                     Try it →
                   </Link>
                 </div>
@@ -201,13 +202,13 @@ export default function LandingPage() {
         <div className="container">
           <div className="section-header">
             <div className="section-tag">Why AlgoLearn</div>
-            <h2 className="section-title">Built for Indian Markets, by Indian Traders</h2>
+            <h2 className="section-title">Built for Indian Markets</h2>
           </div>
 
           <div className="grid-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px,1fr))" }}>
             {[
-              { icon: Target,   color: "#6366f1", title: "NSE & BSE Focused",       desc: "Real data for NIFTY, SENSEX, and 15+ major Indian stocks." },
-              { icon: Shield,   color: "#10b981", title: "No Risk Learning",         desc: "Learn and practice everything with virtual money before going live." },
+              { icon: Target,   color: "#6366f1", title: "NSE & BSE Focused",       desc: "Live prices and history for every NSE and BSE listed company, with STT, stamp duty and brokerage built in." },
+              { icon: Shield,   color: "#10b981", title: "Verifiable Results",       desc: "Backtests, signals and simulator scores are fingerprinted on a Hyperledger Besu blockchain, so they cannot be quietly edited." },
               { icon: Award,    color: "#f59e0b", title: "Beginner Friendly",        desc: "Guided step-by-step system. Zero prior coding or trading knowledge needed." },
             ].map((item) => {
               const Icon = item.icon;
@@ -232,7 +233,7 @@ export default function LandingPage() {
             Ready to Start Your Algo Trading Journey?
           </h2>
           <p style={{ color: "rgba(255,255,255,0.8)", marginBottom: "2rem", fontSize: "1rem" }}>
-            Join thousands of beginners learning to trade algorithmically on Indian markets.
+            Learn, build, backtest and practise: all with virtual money.
           </p>
           <Link href="/learn" className="btn btn-lg" style={{ background: "white", color: "var(--accent)", fontWeight: 700 }}>
             Start for Free Today <ArrowRight size={18} />
@@ -248,10 +249,10 @@ export default function LandingPage() {
             AlgoLearn India
           </div>
           <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-            For educational purposes only. Not financial advice.
+            For educational purposes only. Not investment advice. AlgoLearn never places real orders.
           </div>
           <div style={{ display: "flex", gap: "1.25rem" }}>
-            {["/learn", "/builder", "/backtest", "/simulator"].map((href) => (
+            {["/learn", "/builder", "/backtest", "/simulator", "/ledger"].map((href) => (
               <Link key={href} href={href} style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
                 {href.slice(1).charAt(0).toUpperCase() + href.slice(2)}
               </Link>

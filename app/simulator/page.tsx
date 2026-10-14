@@ -1,369 +1,196 @@
 "use client";
-// app/simulator/page.tsx — Trade Simulator with Candlestick Pattern Analysis
+// app/simulator/page.tsx — paper trading on revealed-one-candle-at-a-time history.
+// The server holds the future candles, fills orders and scores the session, so the
+// result is genuine and can be verified on the ledger.
 
-import { useState, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Gamepad2, Play, Pause, SkipForward, TrendingUp, TrendingDown,
-  RotateCcw, Info, AlertCircle, Activity, Zap, ArrowUpCircle, ArrowDownCircle,
+  Activity, AlertCircle, ArrowDownCircle, ArrowUpCircle, Flag, Gamepad2, Pause, Play, Radio, RotateCcw,
+  SkipForward, TrendingDown, TrendingUp, Zap,
 } from "lucide-react";
-import { fetchSymbols, fetchStockData, OHLCVBar, StockSymbol } from "@/lib/api";
+import { ApiError, fetchLiveSignal, LiveSignal, SimView, startSimulation, stepSimulation } from "@/lib/api";
+import type { CandleSignal, OHLCVBar } from "@/lib/types";
 import { useAuth } from "@/contexts/AuthContext";
-import { updateSimulatorStats } from "@/lib/firebase";
-import {
-  createChart, IChartApi, ISeriesApi, Time, CandlestickSeries, createSeriesMarkers,
-} from "lightweight-charts";
-import Web3Connect from "@/components/Web3Connect";
+import { addSimulatorSession } from "@/lib/firebase";
+import CandleChart, { ChartMarker } from "@/components/CandleChart";
+import LedgerReceipts from "@/components/LedgerReceipts";
+import DataSourceBanner from "@/components/DataSourceBanner";
+import SymbolSearch from "@/components/SymbolSearch";
+import LiveQuote from "@/components/LiveQuote";
 
 const INITIAL_CAPITAL = 100000;
+const inr = (v: number) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 
-interface Position    { shares: number; avgPrice: number }
-interface TradeRecord { date: string; type: "BUY" | "SELL"; price: number; shares: number; pnl?: number }
-interface CandleSignal { date: string; type: "BUY" | "SELL"; pattern: string; strength: "STRONG" | "MODERATE" }
-
-// ─── Candlestick Pattern Analysis Engine ──────────────────────────────────
-function analyzeCandlePatterns(data: OHLCVBar[]): CandleSignal[] {
-  const signals: CandleSignal[] = [];
-  if (data.length < 3) return signals;
-
-  let lastSignalType: "BUY" | "SELL" | null = null;
-
-  for (let i = 2; i < data.length; i++) {
-    const c  = data[i];
-    const p  = data[i - 1];
-    const pp = data[i - 2];
-
-    const bodyC  = Math.abs(c.close - c.open);
-    const bodyP  = Math.abs(p.close - p.open);
-    const bodyPP = Math.abs(pp.close - pp.open);
-    const rangeC = c.high - c.low || 0.001;
-    const rangeP = p.high - p.low || 0.001;
-
-    const bullC = c.close > c.open;
-    const bearC = c.close < c.open;
-    const bullP = p.close > p.open;
-    const bearP = p.close < p.open;
-
-    let type: "BUY" | "SELL" | null = null;
-    let pattern = "";
-    let strength: "STRONG" | "MODERATE" = "MODERATE";
-
-    // ── BULLISH ──────────────────────────────────────
-    if (!type && bearP && bullC && c.open <= p.close && c.close >= p.open && bodyC > bodyP * 1.05) {
-      type = "BUY"; pattern = "Bullish Engulfing"; strength = "STRONG";
-    }
-    if (!type && bodyC > 0 && bullC &&
-      (c.low < Math.min(c.open, c.close) - bodyC * 1.5) &&
-      (c.high - Math.max(c.open, c.close)) < bodyC * 0.5 && bearP) {
-      type = "BUY"; pattern = "Hammer";
-    }
-    if (!type && bearP && bodyP > bodyPP * 1.2 && bullC &&
-      c.close > (pp.open + pp.close) / 2 && bodyPP < bodyP * 0.6) {
-      type = "BUY"; pattern = "Morning Star"; strength = "STRONG";
-    }
-    if (!type && bearP && bullC && c.open < p.close &&
-      c.close > (p.open + p.close) / 2 && c.close < p.open) {
-      type = "BUY"; pattern = "Piercing Line";
-    }
-    if (!type && bullC && bullP && pp.close > pp.open &&
-      p.close > pp.close && c.close > p.close &&
-      bodyC > rangeC * 0.55 && bodyP > rangeP * 0.55) {
-      type = "BUY"; pattern = "Three White Soldiers"; strength = "STRONG";
-    }
-    // Doji after downtrend (reversal)
-    if (!type && bearP && bodyC < rangeC * 0.15 && bodyP > rangeP * 0.4) {
-      type = "BUY"; pattern = "Doji Reversal";
-    }
-
-    // ── BEARISH ──────────────────────────────────────
-    if (!type && bullP && bearC && c.open >= p.close && c.close <= p.open && bodyC > bodyP * 1.05) {
-      type = "SELL"; pattern = "Bearish Engulfing"; strength = "STRONG";
-    }
-    if (!type && bodyC > 0 && bearC &&
-      (c.high > Math.max(c.open, c.close) + bodyC * 1.5) &&
-      (Math.min(c.open, c.close) - c.low) < bodyC * 0.5 && bullP) {
-      type = "SELL"; pattern = "Shooting Star";
-    }
-    if (!type && bullP && bodyP > bodyPP * 1.2 && bearC &&
-      c.close < (pp.open + pp.close) / 2 && bodyPP < bodyP * 0.6) {
-      type = "SELL"; pattern = "Evening Star"; strength = "STRONG";
-    }
-    if (!type && bullP && bearC && c.open > p.close &&
-      c.close < (p.open + p.close) / 2 && c.close > p.open) {
-      type = "SELL"; pattern = "Dark Cloud Cover";
-    }
-    if (!type && bearC && bearP && pp.close < pp.open &&
-      p.close < pp.close && c.close < p.close &&
-      bodyC > rangeC * 0.55 && bodyP > rangeP * 0.55) {
-      type = "SELL"; pattern = "Three Black Crows"; strength = "STRONG";
-    }
-    // Doji after uptrend (reversal)
-    if (!type && bullP && bodyC < rangeC * 0.15 && bodyP > rangeP * 0.4) {
-      type = "SELL"; pattern = "Doji Reversal";
-    }
-
-    // Strict alternation: BUY only if last != BUY; SELL only if last == BUY
-    if (type) {
-      const ok =
-        (type === "BUY"  && lastSignalType !== "BUY") ||
-        (type === "SELL" && lastSignalType === "BUY");
-      if (ok) {
-        signals.push({ date: c.date, type, pattern, strength });
-        lastSignalType = type;
-      }
-    }
-  }
-
-  return signals;
-}
-
-// ─── Component ───────────────────────────────────────────────────────────────
 export default function SimulatorPage() {
   const { user } = useAuth();
-  const chartContainerRef = useRef<HTMLDivElement>(null);
-  const chartRef          = useRef<IChartApi | null>(null);
-  const seriesRef         = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const markersRef        = useRef<any>(null);
-
-  const [symbols,   setSymbols]   = useState<StockSymbol[]>([]);
-  const [symbol,    setSymbol]    = useState("RELIANCE.NS");
-  const [period,    setPeriod]    = useState("1y");
-  const [allData,   setAllData]   = useState<OHLCVBar[]>([]);
-  const [signals,   setSignals]   = useState<CandleSignal[]>([]);
-  const [cursor,    setCursor]    = useState(50);
-  const [playing,   setPlaying]   = useState(false);
-  const [loading,   setLoading]   = useState(false);
-  const [started,   setStarted]   = useState(false);
-  const [finished,  setFinished]  = useState(false);
-  const [error,     setError]     = useState("");
-
-  const [cash,      setCash]      = useState(INITIAL_CAPITAL);
-  const [position,  setPosition]  = useState<Position | null>(null);
-  const [trades,    setTrades]    = useState<TradeRecord[]>([]);
-  const [shares,    setShares]    = useState(10);
-
-  const visibleData    = allData.slice(0, cursor);
-  const currentBar     = allData[cursor - 1];
-  const currentPrice   = currentBar?.close ?? 0;
-  const portfolioValue = cash + (position ? position.shares * currentPrice : 0);
-  const totalPnL       = portfolioValue - INITIAL_CAPITAL;
-  const totalReturn    = (totalPnL / INITIAL_CAPITAL) * 100;
-
-  // Find the most recent signal within the last 5 visible bars
-  const recentSignal: CandleSignal | null = (() => {
-    const last5 = visibleData.slice(-5).map(d => d.date);
-    for (let i = last5.length - 1; i >= 0; i--) {
-      const sig = signals.find(s => s.date === last5[i]);
-      if (sig) {
-        if (sig.type === "BUY" && !position) return sig;
-        if (sig.type === "SELL" && position)  return sig;
-      }
-    }
-    return null;
-  })();
+  const [symbol, setSymbol] = useState("RELIANCE.NS");
+  const [period, setPeriod] = useState("1y");
+  const [view, setView] = useState<SimView | null>(null);
+  const [bars, setBars] = useState<OHLCVBar[]>([]);
+  const [signals, setSignals] = useState<CandleSignal[]>([]);
+  const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState(400);
+  const [shares, setShares] = useState(10);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [live, setLive] = useState<LiveSignal | null>(null);
+  const [liveLoading, setLiveLoading] = useState(false);
+  const busy = useRef(false);
+  const reported = useRef<string | null>(null);
 
   useEffect(() => {
-    fetchSymbols().then(setSymbols).catch(() => {});
+    const fromUrl = new URLSearchParams(window.location.search).get("symbol");
+    if (fromUrl) setSymbol(fromUrl.toUpperCase());
   }, []);
 
-  const resetAll = () => {
-    setStarted(false); setFinished(false); setCash(INITIAL_CAPITAL);
-    setPosition(null); setTrades([]); setPlaying(false);
-    setCursor(50); setAllData([]); setSignals([]);
+  const reset = useCallback(() => {
+    setView(null); setBars([]); setSignals([]); setPlaying(false); setError(""); reported.current = null;
+  }, []);
+
+  // a different user must not continue someone else's session
+  useEffect(() => { reset(); }, [user?.uid, reset]);
+
+  const merge = (v: SimView) => {
+    setView(v);
+    setBars(prev => {
+      const last = prev[prev.length - 1]?.date ?? "";
+      const fresh = v.bars.filter(b => b.date > last);
+      return fresh.length ? [...prev, ...fresh] : prev;
+    });
+    setSignals(prev => {
+      const seen = new Set(prev.map(s => s.date));
+      const fresh = v.signals.filter(s => !seen.has(s.date));
+      return fresh.length ? [...prev, ...fresh] : prev;
+    });
+    if (v.error) setError(v.error);
+    if (v.finished) setPlaying(false);
   };
 
-  // ── Session isolation: reset simulator when user changes (login/logout) ────
-  useEffect(() => {
-    resetAll();
-  }, [user?.uid]);
-
-  const loadData = async () => {
-    setLoading(true); setError("");
+  const start = async () => {
+    setLoading(true); reset();
     try {
-      const data = await fetchStockData(symbol, period);
-      if (data.length < 60) throw new Error("Not enough historical data.");
-      const sigs = analyzeCandlePatterns(data);
-      setAllData(data);
-      setSignals(sigs);
-      setCash(INITIAL_CAPITAL); setPosition(null); setTrades([]);
-      setPlaying(false); setCursor(50); setStarted(true); setFinished(false);
-    } catch (e: any) {
-      setError(e.message || "Failed to load stock data. Please try another symbol or period.");
+      const v = await startSimulation(symbol, period);
+      setBars(v.bars); setSignals(v.signals); setView(v);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not start the simulation.");
     } finally {
       setLoading(false);
     }
   };
 
+  const step = useCallback(async (opts: Parameters<typeof stepSimulation>[1]) => {
+    if (!view || busy.current) return;
+    busy.current = true;
+    setError("");
+    try {
+      merge(await stepSimulation(view.sessionId, opts));
+    } catch (e) {
+      setPlaying(false);
+      setError(e instanceof ApiError ? e.message : "Connection problem; press Next to retry.");
+    } finally {
+      busy.current = false;
+    }
+  }, [view]);
+
   useEffect(() => {
-    if (!playing) return;
-    const id = setInterval(() => {
-      setCursor(prev => {
-        if (prev >= allData.length) { setPlaying(false); setFinished(true); return prev; }
-        return prev + 1;
-      });
-    }, 350);
+    if (!playing || !view || view.finished) return;
+    const id = setInterval(() => step({ advance: 1 }), speed);
     return () => clearInterval(id);
-  }, [playing, allData.length]);
+  }, [playing, speed, view, step]);
 
-  const handleBuy = () => {
-    if (!currentPrice || shares <= 0) return;
-    const cost = shares * currentPrice;
-    if (cost > cash) { alert("Not enough cash!"); return; }
-    setCash(c => c - cost);
-    setPosition(p => p
-      ? { shares: p.shares + shares, avgPrice: (p.avgPrice * p.shares + cost) / (p.shares + shares) }
-      : { shares, avgPrice: currentPrice }
-    );
-    setTrades(t => [...t, { date: currentBar.date, type: "BUY", price: currentPrice, shares }]);
-  };
-
-  const handleSell = () => {
-    if (!position || !currentPrice) return;
-    const s2    = Math.min(shares, position.shares);
-    const pnl   = (currentPrice - position.avgPrice) * s2;
-    setCash(c => c + s2 * currentPrice);
-    setPosition(p => {
-      if (!p) return null;
-      const rem = p.shares - s2;
-      return rem > 0 ? { ...p, shares: rem } : null;
-    });
-    setTrades(t => [...t, { date: currentBar.date, type: "SELL", price: currentPrice, shares: s2, pnl }]);
-  };
-
+  // record the finished session in the user's running totals once
   useEffect(() => {
-    if (!finished || !user) return;
-    const wins   = trades.filter(t => t.type === "SELL" && (t.pnl ?? 0) > 0).length;
-    const losses = trades.filter(t => t.type === "SELL" && (t.pnl ?? 0) < 0).length;
-    updateSimulatorStats(user.uid, { totalTrades: trades.length, wins, losses, totalPnL }).catch(() => {});
-  }, [finished]);
+    const r = view?.result;
+    if (!user || !view?.finished || !r || reported.current === view.sessionId) return;
+    reported.current = view.sessionId;
+    addSimulatorSession(user, { trades: view.trades.length, wins: r.wins, losses: r.losses, pnl: r.finalValue - INITIAL_CAPITAL }).catch(() => {});
+  }, [view, user]);
 
-  // ── Init chart once ───────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!started || !chartContainerRef.current || chartRef.current) return;
+  const markers = useMemo<ChartMarker[]>(() => [
+    ...signals.map(s => ({
+      date: s.date,
+      position: (s.type === "BUY" ? "belowBar" : "aboveBar") as ChartMarker["position"],
+      color: s.type === "BUY" ? "#60a5fa" : "#fb923c",
+      shape: (s.type === "BUY" ? "arrowUp" : "arrowDown") as ChartMarker["shape"],
+      text: `${s.type}: ${s.pattern}`,
+    })),
+    ...(view?.trades ?? []).map(t => ({
+      date: t.date,
+      position: (t.type === "BUY" ? "belowBar" : "aboveBar") as ChartMarker["position"],
+      color: t.type === "BUY" ? "#10b981" : "#ef4444",
+      shape: "circle" as const,
+      text: `You: ${t.type}`,
+    })),
+  ], [signals, view?.trades]);
 
-    const chart = createChart(chartContainerRef.current, {
-      layout: { background: { type: "solid", color: "#0f172a" } as any, textColor: "#94a3b8" },
-      grid: { vertLines: { color: "#1e293b" }, horzLines: { color: "#1e293b" } },
-      width: chartContainerRef.current.clientWidth,
-      height: 420,
-      timeScale: { timeVisible: true, borderColor: "#334155" },
-      rightPriceScale: { borderColor: "#334155" },
-    });
-
-    const series = chart.addSeries(CandlestickSeries, {
-      upColor: "#10b981", downColor: "#ef4444",
-      wickUpColor: "#10b981", wickDownColor: "#ef4444",
-      borderVisible: false,
-    });
-
-    markersRef.current = createSeriesMarkers(series);
-    seriesRef.current  = series as any;
-    chartRef.current   = chart;
-
-    const onResize = () => {
-      if (chartContainerRef.current && chartRef.current)
-        chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
-    };
-    window.addEventListener("resize", onResize);
-    return () => {
-      window.removeEventListener("resize", onResize);
-      chart.remove();
-      chartRef.current = null; seriesRef.current = null; markersRef.current = null;
-    };
-  }, [started]);
-
-  // ── Update chart data + markers whenever cursor or trades change ──────────
-  useEffect(() => {
-    if (!seriesRef.current || visibleData.length === 0) return;
-
-    // Set OHLCV data
-    seriesRef.current.setData(
-      visibleData.map(d => ({ time: d.date as Time, open: d.open, high: d.high, low: d.low, close: d.close }))
-    );
-
-    const markers: any[] = [];
-
-    // System signals — only those within visible range
-    signals.forEach(sig => {
-      if (!visibleData.some(d => d.date === sig.date)) return;
-      markers.push({
-        time:     sig.date as Time,
-        position: sig.type === "BUY" ? "belowBar" : "aboveBar",
-        color:    sig.type === "BUY" ? "#60a5fa" : "#fb923c",
-        shape:    sig.type === "BUY" ? "arrowUp"  : "arrowDown",
-        text:     sig.type === "BUY"
-          ? `BUY: ${sig.pattern}`
-          : `SELL: ${sig.pattern}`,
-      });
-    });
-
-    // User trades
-    trades.forEach(tr => {
-      markers.push({
-        time:     tr.date as Time,
-        position: tr.type === "BUY" ? "belowBar" : "aboveBar",
-        color:    tr.type === "BUY" ? "#10b981" : "#ef4444",
-        shape:    "circle",
-        text:     `You: ${tr.type}`,
-      });
-    });
-
-    markers.sort((a, b) => (a.time as string).localeCompare(b.time as string));
-    markersRef.current?.setMarkers(markers);
-    chartRef.current?.timeScale().scrollToRealTime();
-  }, [cursor, trades, signals]);
-
-  // ── Setup screen ──────────────────────────────────────────────────────────
-  if (!started) {
+  // ── setup screen ────────────────────────────────────────────────────────
+  if (!view) {
     return (
       <div className="page">
-        <div className="container" style={{ paddingTop: "2rem" }}>
-          <div className="page-header-inner" style={{ marginBottom: "2rem" }}>
-            <h1 className="page-title">Trade Simulator</h1>
-            <p className="page-subtitle">Practice buy/sell on real past data. AI analyses candlestick patterns in real-time.</p>
+        <div className="container" style={{ paddingTop: "2rem", paddingBottom: "3rem" }}>
+          <div className="page-header-inner" style={{ marginBottom: "1.5rem" }}>
+            <div>
+              <h1 className="page-title">Trade Simulator</h1>
+              <p className="page-subtitle">Trade a real past chart one candle at a time while the system flags candlestick-pattern signals.</p>
+            </div>
           </div>
-
-          <div style={{ maxWidth: 520, margin: "0 auto" }}>
+          <div className="two-col">
             <div className="card">
-              <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
-                <div style={{ width: 60, height: 60, borderRadius: "50%", background: "var(--accent-light)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 0.75rem" }}>
-                  <Gamepad2 size={26} style={{ color: "var(--accent)" }} />
-                </div>
-                <h2 style={{ fontWeight: 800, marginBottom: "0.4rem" }}>Paper Trading Simulator</h2>
-                <p style={{ color: "var(--text-secondary)", fontSize: "0.88rem" }}>
-                  Chart revealed one candle at a time. The system watches for patterns and signals you when to act.
+              <div style={{ textAlign: "center", marginBottom: "1.25rem" }}>
+                <Gamepad2 size={34} style={{ color: "var(--accent)", margin: "0 auto 0.5rem" }} />
+                <h2 style={{ fontWeight: 800 }}>Paper trading with ₹1,00,000</h2>
+                <p className="small muted" style={{ marginTop: "0.3rem" }}>
+                  The first 50 candles are shown as context. Future candles stay on the server until you move forward, so you can't peek or rewind.
                 </p>
               </div>
-
               <div style={{ display: "flex", flexDirection: "column", gap: "0.9rem" }}>
+                <SymbolSearch id="ssym" value={symbol} onChange={s => { setSymbol(s); setLive(null); }} label="Company / index (any NSE or BSE listing)" />
+                <LiveQuote symbol={symbol} />
                 <div className="form-group">
-                  <label className="form-label">Stock</label>
-                  <select className="form-select" value={symbol} onChange={e => setSymbol(e.target.value)}>
-                    {symbols.map(s => <option key={s.symbol} value={s.symbol}>{s.name} ({s.symbol})</option>)}
-                    {!symbols.length && <option value="RELIANCE.NS">Reliance Industries</option>}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Period</label>
-                  <select className="form-select" value={period} onChange={e => setPeriod(e.target.value)}>
-                    <option value="6mo">6 Months</option>
-                    <option value="1y">1 Year</option>
-                    <option value="2y">2 Years</option>
+                  <label className="form-label" htmlFor="sper">Period</label>
+                  <select id="sper" className="form-select" value={period} onChange={e => setPeriod(e.target.value)}>
+                    <option value="6mo">6 months</option><option value="1y">1 year</option><option value="2y">2 years</option>
                   </select>
                 </div>
               </div>
-
-              <div className="alert alert-info" style={{ marginTop: "1rem", fontSize: "0.82rem" }}>
+              <div className="alert alert-info small" style={{ marginTop: "1rem" }}>
                 <Activity size={14} style={{ flexShrink: 0 }} />
-                <div>
-                  <strong>Patterns detected:</strong> Bullish/Bearish Engulfing, Hammer, Shooting Star, Morning/Evening Star, Piercing Line, Dark Cloud Cover, Three Soldiers/Crows, Doji Reversal.
-                </div>
+                <span>The full list of system signals is fingerprinted on the ledger <strong>before</strong> you see the first one, so nobody can change them afterwards. Your final score is computed by the server and recorded too.</span>
               </div>
-
-              {error && <div className="alert alert-danger" style={{ marginTop: "0.75rem" }}><AlertCircle size={16} /> {error}</div>}
-
-              <button className="btn btn-primary w-full" style={{ marginTop: "1.25rem" }} onClick={loadData} disabled={loading}>
-                {loading ? <><span className="spinner" style={{ width: 16, height: 16 }} /> Analysing patterns...</> : <><Play size={16} /> Start Simulation</>}
+              {error && <div className="alert alert-danger small" style={{ marginTop: "0.75rem" }}><AlertCircle size={16} /> {error}</div>}
+              <button className="btn btn-primary w-full" style={{ marginTop: "1.1rem" }} onClick={start} disabled={loading}>
+                {loading ? <><span className="spinner" style={{ width: 16, height: 16 }} /> Preparing…</> : <><Play size={16} /> Start simulation</>}
               </button>
+              {!user && <p className="small muted" style={{ marginTop: "0.6rem", textAlign: "center" }}>Sign in to appear on the verified leaderboard.</p>}
+            </div>
+
+            <div className="card">
+              <h2 className="card-title" style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}><Radio size={16} style={{ color: "var(--danger)" }} /> Today's live signal</h2>
+              <p className="small muted" style={{ margin: "0.4rem 0 1rem" }}>
+                Runs the same pattern engine on the latest real data for {symbol}. A signal is time-stamped on the ledger when it is issued, so its track record can be checked later.
+              </p>
+              <button className="btn btn-secondary btn-sm" onClick={async () => {
+                setLiveLoading(true);
+                try { setLive(await fetchLiveSignal(symbol)); } catch (e) { setLive(null); setError(e instanceof Error ? e.message : "Failed"); }
+                finally { setLiveLoading(false); }
+              }} disabled={liveLoading}>{liveLoading ? "Checking…" : `Check ${symbol}`}</button>
+              {live && (
+                <div style={{ marginTop: "1rem", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                  <DataSourceBanner source={live.dataSource} />
+                  <div className="small">As of <strong>{live.asOf}</strong> close {inr(live.close)}</div>
+                  {live.signal ? (
+                    <div className={`verdict ${live.signal.type === "BUY" ? "verdict-ok" : "verdict-bad"}`}>
+                      {live.signal.type === "BUY" ? <ArrowUpCircle size={22} /> : <ArrowDownCircle size={22} />}
+                      {live.signal.type}: {live.signal.pattern} ({live.signal.strength})
+                    </div>
+                  ) : (
+                    <div className="small muted">No new signal on the latest candle.{live.previousSignal ? ` Last signal: ${live.previousSignal.type} (${live.previousSignal.pattern}) on ${live.previousSignal.date}.` : ""}</div>
+                  )}
+                  {live.note && <div className="small muted">{live.note}</div>}
+                  <LedgerReceipts receipts={[live.ledger]} title="Signal time-stamped" />
+                  <p className="small muted">Educational pattern detection only, not investment advice.</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -371,208 +198,132 @@ export default function SimulatorPage() {
     );
   }
 
-  // ── Simulation screen ─────────────────────────────────────────────────────
-  const sigCount  = signals.filter(s => visibleData.some(d => d.date === s.date)).length;
+  // ── simulation screen ───────────────────────────────────────────────────
+  const p = view.portfolio;
+  const pnl = p.value - INITIAL_CAPITAL;
+  const recent = [...signals].reverse().find(s => {
+    const idx = bars.findIndex(b => b.date === s.date);
+    return idx >= bars.length - 3 && ((s.type === "BUY" && p.shares === 0) || (s.type === "SELL" && p.shares > 0));
+  });
+  const cost = shares * p.price;
 
   return (
     <div className="page">
-      <div style={{ padding: "1rem 1.5rem 2rem" }}>
-
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
+      <div className="container" style={{ paddingTop: "1.25rem", paddingBottom: "2rem", maxWidth: 1400 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" }}>
           <div>
-            <h1 style={{ fontSize: "1.2rem", fontWeight: 800 }}>Simulator — {symbol}</h1>
-            <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
-              Bar {cursor} / {allData.length} &bull; {currentBar?.date} &bull; {sigCount} pattern{sigCount !== 1 ? "s" : ""} detected so far
-            </p>
+            <h1 style={{ fontSize: "1.2rem", fontWeight: 800 }}>Simulator: {view.symbol}</h1>
+            <p className="small muted">Candle {view.cursor + 1} / {view.totalBars} · {bars[bars.length - 1]?.date} · {signals.length} signal{signals.length === 1 ? "" : "s"} so far</p>
           </div>
-          <div style={{ display: "flex", gap: "0.5rem" }}>
-            <button className="btn btn-secondary btn-sm" onClick={() => setPlaying(!playing)} disabled={finished}>
+          <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+            <button className="btn btn-secondary btn-sm" onClick={() => setPlaying(x => !x)} disabled={view.finished}>
               {playing ? <><Pause size={14} /> Pause</> : <><Play size={14} /> Play</>}
             </button>
-            <button className="btn btn-secondary btn-sm" onClick={() => !finished && setCursor(c => Math.min(c + 1, allData.length))} disabled={finished}>
-              <SkipForward size={14} /> Next
-            </button>
-            <button className="btn btn-ghost btn-sm" onClick={resetAll}>
-              <RotateCcw size={14} /> Reset
-            </button>
+            <select className="form-select" style={{ width: "auto", padding: "0.3rem 0.5rem", fontSize: "0.8rem" }} value={speed} onChange={e => setSpeed(Number(e.target.value))} aria-label="Speed">
+              <option value={800}>Slow</option><option value={400}>Normal</option><option value={200}>Fast</option>
+            </select>
+            <button className="btn btn-secondary btn-sm" onClick={() => step({ advance: 1 })} disabled={view.finished || playing}><SkipForward size={14} /> Next</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => step({ advance: 10 })} disabled={view.finished || playing}>+10</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => step({ end: true })} disabled={view.finished}><Flag size={14} /> End</button>
+            <button className="btn btn-ghost btn-sm" onClick={reset}><RotateCcw size={14} /> New</button>
           </div>
         </div>
 
-        {/* ── Signal Banner ── */}
-        {recentSignal ? (
-          <div style={{
-            marginBottom: "0.75rem",
-            padding: "0.9rem 1.25rem",
-            borderRadius: "12px",
-            display: "flex", alignItems: "center", gap: "1rem",
-            background: recentSignal.type === "BUY"
-              ? "linear-gradient(135deg, rgba(16,185,129,0.18), rgba(59,130,246,0.12))"
-              : "linear-gradient(135deg, rgba(239,68,68,0.18), rgba(245,158,11,0.12))",
-            border: `2px solid ${recentSignal.type === "BUY" ? "#10b981" : "#ef4444"}`,
-            boxShadow: `0 0 20px ${recentSignal.type === "BUY" ? "rgba(16,185,129,0.25)" : "rgba(239,68,68,0.25)"}`,
-          }}>
-            {recentSignal.type === "BUY"
-              ? <ArrowUpCircle size={40} style={{ color: "#10b981", flexShrink: 0 }} />
-              : <ArrowDownCircle size={40} style={{ color: "#ef4444", flexShrink: 0 }} />
-            }
-            <div>
-              <div style={{
-                fontSize: "1.35rem", fontWeight: 900, letterSpacing: "0.04em",
-                color: recentSignal.type === "BUY" ? "#10b981" : "#ef4444",
-              }}>
-                {recentSignal.type === "BUY" ? "SYSTEM SIGNAL: BUY" : "SYSTEM SIGNAL: SELL"}
-              </div>
-              <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginTop: "0.15rem" }}>
-                <Zap size={12} style={{ display: "inline", marginRight: 4 }} />
-                Pattern: <strong style={{ color: "var(--text-primary)" }}>{recentSignal.pattern}</strong>
-                &nbsp;&bull;&nbsp;
-                <span style={{ color: recentSignal.strength === "STRONG" ? "#f59e0b" : "var(--text-muted)", fontWeight: 600 }}>
-                  {recentSignal.strength}
-                </span>
-                &nbsp;&bull;&nbsp; Seen on candle: {visibleData.slice(-5).find(d => signals.find(s => s.date === d.date && s.type === recentSignal.type))?.date}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div style={{
-            marginBottom: "0.75rem", padding: "0.5rem 0.9rem", borderRadius: "8px",
-            background: "rgba(148,163,184,0.06)", border: "1px solid var(--border-color)",
-            fontSize: "0.8rem", color: "var(--text-muted)", display: "flex", gap: "0.5rem", alignItems: "center",
-          }}>
-            <Activity size={13} /> Watching for patterns&hellip; Blue arrows = System BUY &bull; Orange arrows = System SELL
-          </div>
-        )}
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          <DataSourceBanner source={view.dataSource} />
 
-        {/* Portfolio bar */}
-        <div className="portfolio-bar" style={{ marginBottom: "0.75rem" }}>
-          {[
-            { label: "Portfolio",  val: `₹${portfolioValue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`, color: "var(--text-primary)" },
-            { label: "Cash",       val: `₹${cash.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`,           color: "var(--text-primary)" },
-            { label: "P&L",        val: `${totalPnL >= 0 ? "+" : ""}₹${totalPnL.toFixed(0)}`,                       color: totalPnL >= 0 ? "var(--success)" : "var(--danger)" },
-            { label: "Return",     val: `${totalReturn >= 0 ? "+" : ""}${totalReturn.toFixed(2)}%`,                  color: totalReturn >= 0 ? "var(--success)" : "var(--danger)" },
-            { label: "Holding",    val: position ? `${position.shares} sh @ ₹${position.avgPrice.toFixed(0)}` : "None", color: "var(--text-secondary)" },
-            { label: "Price",      val: `₹${currentPrice.toFixed(2)}`,                                               color: "var(--accent)" },
-          ].map(item => (
-            <div key={item.label} className="portfolio-item">
-              <span className="portfolio-label">{item.label}</span>
-              <span className="portfolio-val" style={{ color: item.color, fontSize: "0.88rem" }}>{item.val}</span>
-            </div>
-          ))}
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 260px", gap: "1rem", alignItems: "start" }}>
-          {/* Chart */}
-          <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--border-color)", background: "#0f172a" }}>
-            <div ref={chartContainerRef} style={{ width: "100%", height: 420 }} />
-            {/* Slider */}
-            <div style={{ padding: "0.6rem 1rem 0.4rem", background: "#0f172a", borderTop: "1px solid #1e293b" }}>
-              <input type="range" min={50} max={allData.length} value={cursor}
-                onChange={e => { setPlaying(false); setCursor(Number(e.target.value)); }}
-                style={{ width: "100%", accentColor: "var(--accent)" }}
-              />
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: "#475569", marginTop: "0.1rem" }}>
-                <span>{allData[50]?.date}</span>
-                <span>{allData[allData.length - 1]?.date}</span>
-              </div>
-            </div>
-            {/* Legend */}
-            <div style={{ padding: "0.5rem 1rem 0.7rem", background: "#0f172a", display: "flex", gap: "1.25rem", fontSize: "0.72rem", flexWrap: "wrap" }}>
-              <span style={{ color: "#60a5fa", fontWeight: 600 }}>▲ System BUY</span>
-              <span style={{ color: "#fb923c", fontWeight: 600 }}>▼ System SELL</span>
-              <span style={{ color: "#10b981" }}>● Your BUY</span>
-              <span style={{ color: "#ef4444" }}>● Your SELL</span>
-              <span style={{ color: "#475569" }}>Scroll/pinch to zoom &bull; Drag to pan</span>
-            </div>
-          </div>
-
-          {/* Side panel */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-            <div className="sim-panel">
-              <div style={{ marginBottom: "0.7rem" }}>
-                <div style={{ fontSize: "0.68rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Current Price</div>
-                <div className="sim-price">₹{currentPrice.toFixed(2)}</div>
-              </div>
-              <div className="form-group" style={{ marginBottom: "0.7rem" }}>
-                <label className="form-label">Shares</label>
-                <input className="form-input" type="number" min={1} value={shares}
-                  onChange={e => setShares(Math.max(1, Number(e.target.value)))} />
-                <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
-                  Cost: ₹{(shares * currentPrice).toFixed(0)}
+          {recent ? (
+            <div className={`verdict ${recent.type === "BUY" ? "verdict-ok" : "verdict-bad"}`}>
+              {recent.type === "BUY" ? <ArrowUpCircle size={30} /> : <ArrowDownCircle size={30} />}
+              <div>
+                <div style={{ fontSize: "1.1rem", fontWeight: 900 }}>SYSTEM SIGNAL: {recent.type}</div>
+                <div className="small" style={{ fontWeight: 500, color: "var(--text-secondary)" }}>
+                  <Zap size={12} style={{ display: "inline" }} /> {recent.pattern} · {recent.strength} · on {recent.date}
                 </div>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
-                <button className="btn btn-success" onClick={handleBuy}
-                  disabled={!currentPrice || shares * currentPrice > cash || finished}
-                  style={{ fontSize: "0.85rem", justifyContent: "center" }}>
-                  <TrendingUp size={14} /> BUY
-                </button>
-                <button className="btn btn-danger" onClick={handleSell}
-                  disabled={!position || finished}
-                  style={{ fontSize: "0.85rem", justifyContent: "center" }}>
-                  <TrendingDown size={14} /> SELL
-                </button>
+            </div>
+          ) : (
+            <div className="alert small muted"><Activity size={14} /> Watching for patterns… Blue arrows = system BUY, orange = system SELL.</div>
+          )}
+
+          <div className="portfolio-bar">
+            {[
+              ["Portfolio", inr(p.value), ""],
+              ["Cash", inr(p.cash), ""],
+              ["P&L", `${pnl >= 0 ? "+" : ""}${inr(pnl)}`, pnl >= 0 ? "positive" : "negative"],
+              ["Return", `${pnl >= 0 ? "+" : ""}${((pnl / INITIAL_CAPITAL) * 100).toFixed(2)}%`, pnl >= 0 ? "positive" : "negative"],
+              ["Holding", p.shares ? `${p.shares} @ ₹${p.avgPrice.toFixed(0)}` : "None", ""],
+              ["Price", `₹${p.price.toFixed(2)}`, ""],
+            ].map(([l, v, c]) => (
+              <div key={l} className="portfolio-item"><span className="portfolio-label">{l}</span><span className={`portfolio-val ${c}`}>{v}</span></div>
+            ))}
+          </div>
+
+          <div className="sim-layout">
+            <div className="chart-container" style={{ padding: "0.75rem" }}>
+              <CandleChart bars={bars} markers={markers} height={420} follow />
+              <div className="small" style={{ display: "flex", gap: "1rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
+                <span style={{ color: "#60a5fa", fontWeight: 600 }}>▲ System BUY</span>
+                <span style={{ color: "#fb923c", fontWeight: 600 }}>▼ System SELL</span>
+                <span style={{ color: "#10b981" }}>● Your BUY</span>
+                <span style={{ color: "#ef4444" }}>● Your SELL</span>
               </div>
             </div>
 
-            <div className="sim-panel">
-              <div style={{ fontWeight: 700, fontSize: "0.85rem", marginBottom: "0.65rem" }}>Trade History ({trades.length})</div>
-              <div style={{ maxHeight: 220, overflowY: "auto", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
-                {trades.length === 0 && (
-                  <div style={{ color: "var(--text-muted)", fontSize: "0.8rem", textAlign: "center", padding: "1rem 0" }}>
-                    No trades yet.
-                  </div>
-                )}
-                {[...trades].reverse().map((tr, i) => (
-                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.35rem 0.5rem", background: "var(--bg-tertiary)", borderRadius: 6, fontSize: "0.77rem" }}>
-                    <div>
-                      <span className={`badge ${tr.type === "BUY" ? "badge-success" : "badge-danger"}`} style={{ padding: "0.08rem 0.35rem" }}>{tr.type}</span>
-                      <span style={{ color: "var(--text-muted)", marginLeft: 5 }}>{tr.date.slice(5)}</span>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              <div className="sim-panel">
+                <div className="portfolio-label">Current price</div>
+                <div className="sim-price">₹{p.price.toFixed(2)}</div>
+                <div className="form-group" style={{ margin: "0.7rem 0" }}>
+                  <label className="form-label" htmlFor="qty">Shares</label>
+                  <input id="qty" className="form-input" type="number" min={1} value={shares} onChange={e => setShares(Math.max(1, Math.floor(Number(e.target.value) || 1)))} />
+                  <span className="small muted">≈ {inr(cost)} + charges · max {Math.floor(p.cash / (p.price * 1.0015))}</span>
+                </div>
+                <div className="grid-2" style={{ gap: "0.5rem" }}>
+                  <button className="btn btn-success" onClick={() => step({ action: { type: "BUY", shares } })} disabled={view.finished || cost > p.cash}>
+                    <TrendingUp size={14} /> Buy
+                  </button>
+                  <button className="btn btn-danger" onClick={() => step({ action: { type: "SELL", shares } })} disabled={view.finished || !p.shares}>
+                    <TrendingDown size={14} /> Sell
+                  </button>
+                </div>
+                {error && <div className="alert alert-danger small" style={{ marginTop: "0.6rem" }}><AlertCircle size={14} /> {error}</div>}
+              </div>
+
+              <div className="sim-panel">
+                <div style={{ fontWeight: 700, fontSize: "0.85rem", marginBottom: "0.5rem" }}>Your trades ({view.trades.length})</div>
+                <div style={{ maxHeight: 230, overflowY: "auto", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+                  {!view.trades.length && <div className="small muted" style={{ textAlign: "center", padding: "0.75rem 0" }}>No trades yet.</div>}
+                  {[...view.trades].reverse().map((t, i) => (
+                    <div key={i} className="small" style={{ display: "flex", justifyContent: "space-between", padding: "0.35rem 0.5rem", background: "var(--bg-tertiary)", borderRadius: 6 }}>
+                      <span><span className={`badge ${t.type === "BUY" ? "badge-success" : "badge-danger"}`}>{t.type}</span> {t.date.slice(5)}{t.followedSignal ? " ✦" : ""}</span>
+                      <span style={{ textAlign: "right" }}>
+                        ₹{t.price.toFixed(0)} × {t.shares}
+                        {t.pnl !== undefined && <div className={t.pnl >= 0 ? "positive" : "negative"}>{t.pnl >= 0 ? "+" : ""}{inr(t.pnl)}</div>}
+                      </span>
                     </div>
-                    <div style={{ textAlign: "right" }}>
-                      <div style={{ fontWeight: 600 }}>₹{tr.price.toFixed(0)} × {tr.shares}</div>
-                      {tr.pnl !== undefined && (
-                        <div style={{ color: tr.pnl >= 0 ? "var(--success)" : "var(--danger)", fontSize: "0.7rem" }}>
-                          {tr.pnl >= 0 ? "+" : ""}₹{tr.pnl.toFixed(0)}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
+                <p className="small muted" style={{ marginTop: "0.4rem" }}>✦ = trade followed a system signal. Charges (STT, stamp duty, brokerage) are included.</p>
               </div>
             </div>
           </div>
+
+          {view.finished && view.result && (
+            <div className={`card`} style={{ borderColor: view.result.returnPct >= 0 ? "var(--success)" : "var(--danger)" }}>
+              <h2 className="card-title" style={{ marginBottom: "0.75rem" }}>Simulation complete</h2>
+              <div className="stats-grid">
+                <div className="stat-card"><div className="stat-label">Your return</div><div className={`stat-value ${view.result.returnPct >= 0 ? "positive" : "negative"}`}>{view.result.returnPct >= 0 ? "+" : ""}{view.result.returnPct.toFixed(2)}%</div></div>
+                <div className="stat-card"><div className="stat-label">Buy & hold</div><div className="stat-value">{view.result.buyHoldReturnPct >= 0 ? "+" : ""}{view.result.buyHoldReturnPct.toFixed(2)}%</div></div>
+                <div className="stat-card"><div className="stat-label">Closed trades</div><div className="stat-value">{view.result.closedTrades}</div><div className="stat-change">{view.result.wins} wins · {view.result.losses} losses</div></div>
+                <div className="stat-card"><div className="stat-label">Charges paid</div><div className="stat-value">{inr(view.result.totalCosts)}</div></div>
+              </div>
+              <div style={{ marginTop: "1rem" }}>
+                <LedgerReceipts receipts={[view.signalBatch, view.result.ledger]} title="Verifiable on the ledger" />
+              </div>
+            </div>
+          )}
         </div>
-
-        {finished && (
-          <div className="alert" style={{
-            marginTop: "1rem",
-            background: totalPnL >= 0 ? "var(--success-light)" : "var(--danger-light)",
-            borderColor: totalPnL >= 0 ? "var(--success)" : "var(--danger)",
-            color: totalPnL >= 0 ? "var(--success)" : "var(--danger)",
-            justifyContent: "space-between", flexWrap: "wrap",
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-              {totalPnL >= 0 ? <TrendingUp size={20} /> : <TrendingDown size={20} />}
-              <div>
-                <strong>Simulation Complete!</strong>
-                <span style={{ marginLeft: 10 }}>
-                  Return: {totalReturn >= 0 ? "+" : ""}{totalReturn.toFixed(2)}% &bull;{" "}
-                  {trades.filter(t => t.type === "SELL" && (t.pnl ?? 0) > 0).length} winning trades
-                </span>
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-              <Web3Connect
-                finalPnL={totalPnL}
-                winRate={trades.filter(t => t.type === "SELL").length
-                  ? (trades.filter(t => t.type === "SELL" && (t.pnl ?? 0) > 0).length / trades.filter(t => t.type === "SELL").length) * 100
-                  : 0}
-              />
-              <button className="btn btn-ghost btn-sm" onClick={resetAll}><RotateCcw size={14} /> Try Again</button>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
