@@ -15,6 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { POPULAR_SYMBOLS } from "../marketData";
 import type { Instrument } from "../types";
+import { redis, redisEnabled } from "./redis";
 
 const NSE_URL = process.env.NSE_EQUITY_LIST_URL || "https://archives.nseindia.com/content/equities/EQUITY_L.csv";
 const NSE_SME_URL = process.env.NSE_SME_LIST_URL || "https://archives.nseindia.com/emerge/corporates/content/SME_EQUITY_L.csv";
@@ -125,7 +126,7 @@ export function parseBseList(json: unknown): Instrument[] {
 
 // ─── loading & caching ──────────────────────────────────────────────────
 
-const dataDir = () => path.resolve(/*turbopackIgnore: true*/ process.env.MARKET_DATA_DIR || ".market-data");
+const dataDir = () => path.resolve(/*turbopackIgnore: true*/ process.env.MARKET_DATA_DIR || (process.env.VERCEL ? "/tmp/.market-data" : ".market-data"));
 const cacheFile = () => path.join(dataDir(), "universe.json");
 
 const g = globalThis as any;
@@ -179,13 +180,25 @@ export function saveUniverse(u: Universe) {
   fs.renameSync(cacheFile() + ".tmp", cacheFile());
 }
 
-function readCache(): Universe | null {
+/** Shares the downloaded list between serverless instances. Best effort. */
+async function saveShared(u: Universe) {
+  if (!redisEnabled()) return;
+  await redis(["SET", "universe:v1", JSON.stringify(u), "EX", 3 * 24 * 3600]).catch(e => console.warn("[universe] Redis save failed:", e?.message));
+}
+
+async function readCache(): Promise<Universe | null> {
+  const valid = (u: Universe | null) => (u && Array.isArray(u.instruments) && u.instruments.length ? u : null);
   try {
-    const u = JSON.parse(fs.readFileSync(cacheFile(), "utf8")) as Universe;
-    return Array.isArray(u.instruments) && u.instruments.length ? u : null;
-  } catch {
-    return null;
+    const local = valid(JSON.parse(fs.readFileSync(cacheFile(), "utf8")));
+    if (local) return local;
+  } catch { /* no local cache */ }
+  if (redisEnabled()) {
+    try {
+      const raw = await redis<string | null>(["GET", "universe:v1"]);
+      return raw ? valid(JSON.parse(raw)) : null;
+    } catch { /* fall through to download */ }
   }
+  return null;
 }
 
 async function refresh(): Promise<void> {
@@ -198,7 +211,8 @@ async function refresh(): Promise<void> {
       if (fresh.counts.nse + fresh.counts.bse > (current?.complete ? (current.counts.nse + current.counts.bse) * 0.5 : 0)) {
         g.__algolearnUniverse = fresh;
         g.__algolearnUniverseIndex = null;
-        saveUniverse(fresh);
+        try { saveUniverse(fresh); } catch (e: any) { console.warn("[universe] file cache not writable:", e?.message); }
+        await saveShared(fresh);
       } else if (current) {
         current.errors = fresh.errors;
       } else {
@@ -216,7 +230,7 @@ async function refresh(): Promise<void> {
 export async function getUniverse(): Promise<Universe> {
   let u: Universe | undefined = g.__algolearnUniverse;
   if (!u) {
-    const cached = readCache();
+    const cached = await readCache();
     if (cached) u = g.__algolearnUniverse = cached;
   }
   const age = u?.updatedAt ? Date.now() - Date.parse(u.updatedAt) : Infinity;

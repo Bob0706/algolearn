@@ -47,7 +47,7 @@ export async function getMarketData(symbolRaw: unknown, periodRaw: unknown): Pro
   if (!allowSynthetic()) {
     throw new MarketDataError(`Live market data for ${symbol} is unavailable right now (the data provider could not be reached or has no history for this stock). Please try again shortly.`);
   }
-  console.warn(`[stockService] Yahoo Finance unavailable for ${symbol}; serving SYNTHETIC data`);
+  console.warn(`[stockService] real market data unavailable for ${symbol}; serving SYNTHETIC data (ALLOW_SYNTHETIC_DATA=true)`);
   const bars = generateSyntheticBars(symbol, period);
   return { symbol, period, source: "synthetic", bars, dataHash: hashJson(bars) };
 }

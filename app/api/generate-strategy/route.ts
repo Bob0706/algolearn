@@ -6,6 +6,7 @@ import { errorResponse, limited, readJson } from "@/lib/server/http";
 import { InputError } from "@/lib/stockService";
 
 export const runtime = "nodejs";
+export const maxDuration = 60; // seconds; data download + sandbox run can exceed the 10 s default on serverless hosts
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 

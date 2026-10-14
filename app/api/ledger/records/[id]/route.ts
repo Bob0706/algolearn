@@ -13,7 +13,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   try {
     const { id } = await ctx.params;
     const caller = await getCaller(req);
-    const rec = getRecord(id.toLowerCase());
+    const rec = await getRecord(id.toLowerCase());
     if (!rec) return NextResponse.json({ detail: "Record not found." }, { status: 404 });
     const v = publicView(rec, caller.uid ? caller.subject : null);
 

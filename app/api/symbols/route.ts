@@ -4,6 +4,7 @@ import { getUniverse, searchInstruments } from "@/lib/server/universe";
 import { errorResponse, limited } from "@/lib/server/http";
 
 export const runtime = "nodejs";
+export const maxDuration = 60; // seconds; data download + sandbox run can exceed the 10 s default on serverless hosts
 
 export async function GET(req: NextRequest) {
   const tooMany = limited(req, "symbols", 240);

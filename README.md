@@ -124,11 +124,33 @@ The navbar dot shows the ledger state: green = Besu, amber = local dev ledger, r
 - **Gemini**: set `GEMINI_API_KEY` (and optionally `GEMINI_MODEL`) for free-form strategy translation.
 - **Firebase**: set the `NEXT_PUBLIC_FIREBASE_*` values and enable Google sign-in. Records are then attributed to signed-in users, and leaderboard entries need a signed-in user. Without Firebase, a local "Demo Trader" account stores data in the browser.
 
+## Deploy to Vercel (public URL)
+
+Vercel hosts the website and API. Two parts can't run on Vercel and live elsewhere: the Python strategy engine (Render, free) and, optionally, the Besu node (any small VM). Vercel runs many short-lived server copies that share no memory or disk, so the app also needs **Upstash Redis** for simulator sessions, ledger records and the company list.
+
+1. **Engine on Render.** In Render, go to **New → Blueprint**, pick this repository and apply `render.yaml`. Note the service URL (e.g. `https://algolearn-engine.onrender.com`) and the generated `ENGINE_API_KEY` (shown under the service's Environment). Free instances sleep after ~15 idle minutes, so the first backtest afterwards takes about a minute.
+2. **Import into Vercel.** On vercel.com, go to **Add New → Project**, import `Bob0706/algolearn` and keep the detected Next.js settings. Vercel deploys the production branch (`main`); other branches get preview URLs.
+3. **Add Redis.** In the Vercel project, go to **Storage → Create Database → Upstash for Redis** and connect it. This adds `KV_REST_API_URL` and `KV_REST_API_TOKEN`.
+4. **Environment variables** (Project → Settings → Environment Variables):
+
+   | Variable | Value |
+   |---|---|
+   | `STRATEGY_ENGINE_URL` | the Render URL from step 1 |
+   | `ENGINE_API_KEY` | the key from step 1 |
+   | `LEDGER_MODE` | `local` (tamper-evident hash chain in Redis), or `besu` with the three `LEDGER_*` Besu variables once you run a node |
+   | `LEDGER_SUBJECT_SALT` | a long random string; never change it |
+   | `GEMINI_API_KEY` | optional, for free-form AI strategy translation |
+   | `NEXT_PUBLIC_FIREBASE_*` | optional; also add the Vercel domain under Firebase → Authentication → Authorized domains |
+
+5. **Redeploy** (Deployments → ⋯ → Redeploy) so the variables apply. Then open `/api/health`: `engine.ok`, `ledger.ok` and `storage.persistent` should all be `true`.
+
+If NSE/BSE block Vercel's servers from downloading the company list, load it from your own computer into the same Redis: `KV_REST_API_URL=… KV_REST_API_TOKEN=… npm run symbols:sync`.
+
 ## Tests
 
 ```bash
 npm run engine:test   # 18 tests: sandbox security, limits, look-ahead detection, API
-npm test              # portfolio maths, English parser, Python↔TS template parity, ledger,
+npm test              # portfolio maths, English parser, Python↔TS template parity, ledger, Redis storage,
                       # NSE/BSE list parsing, symbol search, Yahoo/Upstox feed parsing
 # against a running Besu node as well:
 LEDGER_TEST_RPC=http://127.0.0.1:8545 LEDGER_TEST_CONTRACT=0x... npm test
@@ -170,7 +192,7 @@ The Besu tests cover:
 - Set `LEDGER_SUBJECT_SALT` and `ENGINE_API_KEY`, and keep `ALLOW_SYNTHETIC_DATA=false`.
 - The server needs outbound access to `archives.nseindia.com`, `api.bseindia.com`, `query1/query2.finance.yahoo.com` and, if used, `api.upstox.com`.
 - Keep the engine on an internal network (as in `docker-compose.yml`).
-- Simulator sessions, rate limits and the record store are single-instance (memory and files). Move them to Redis/Postgres before scaling out.
+- On more than one server (or any serverless host) configure Upstash Redis (`KV_REST_API_URL`/`KV_REST_API_TOKEN`) for sessions, ledger records and the company list. Rate limits stay per instance.
 - Yahoo Finance is an unofficial source; use Upstox or a licensed NSE/BSE data vendor for anything beyond education.
 
 ## Project layout

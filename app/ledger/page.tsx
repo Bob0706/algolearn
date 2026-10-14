@@ -85,6 +85,7 @@ export default function LedgerPage() {
                 {l.contract && <><dt>Contract</dt><dd className="hash">{l.contract}</dd></>}
               </dl>
             )}
+            {health?.storage.warning && <div className="alert alert-danger small" style={{ marginTop: "0.8rem" }}>{health.storage.warning}</div>}
             {l?.mode === "local" && (
               <p className="small muted" style={{ marginTop: "0.8rem" }}>
                 Running without a Besu node. Records are kept in a tamper-evident hash chain on this server. See the README to start Hyperledger Besu with <code>npm run besu:up</code>.

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listIndex, getRecord } from "@/lib/ledger/store";
+import { getRecords, listIndex } from "@/lib/ledger/store";
 import { getCaller } from "@/lib/server/auth";
 import { errorResponse, limited } from "@/lib/server/http";
 import { publicView } from "@/lib/server/records";
@@ -19,12 +19,12 @@ export async function GET(req: NextRequest) {
     const mine = q.get("mine") === "1";
     if (mine && !caller.uid) return NextResponse.json({ records: [], note: "Sign in to see your records." });
     const limit = Math.min(100, Math.max(1, Number(q.get("limit")) || 25));
-    const entries = listIndex(
+    const entries = await listIndex(
       e => (!kind || !KINDS.includes(kind) || e.kind === kind) && (!mine || e.subject === caller.subject),
       limit,
     );
-    const records = entries.map(e => getRecord(e.id)).filter(Boolean).map(r => {
-      const v = publicView(r!, caller.uid ? caller.subject : null);
+    const records = (await getRecords(entries.map(e => e.id))).map(r => {
+      const v = publicView(r, caller.uid ? caller.subject : null);
       return { ...v, content: summarise(v.kind, v.content) };
     });
     return NextResponse.json({ records });

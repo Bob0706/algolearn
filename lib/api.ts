@@ -117,6 +117,7 @@ export interface Health {
   engine: { ok: boolean; detail: string };
   ledger: { mode: "besu" | "local" | "off"; ok: boolean; detail: string; chainId?: number; blockNumber?: number; recordCount?: number; contract?: string };
   ai: { configured: boolean };
+  storage: { backend: "redis" | "files"; persistent: boolean; warning?: string };
 }
 export const fetchHealth = () => request<Health>("/api/health");
 

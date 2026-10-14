@@ -1,7 +1,7 @@
 // Leaderboard of simulator results. Every entry was computed by the server (not
 // reported by the browser) and is backed by a ledger record anyone can verify.
 import { NextRequest, NextResponse } from "next/server";
-import { getRecord, listIndex } from "@/lib/ledger/store";
+import { getRecords, listIndex } from "@/lib/ledger/store";
 import { errorResponse, limited } from "@/lib/server/http";
 
 export const runtime = "nodejs";
@@ -10,9 +10,9 @@ export async function GET(req: NextRequest) {
   const tooMany = limited(req, "leaderboard", 60);
   if (tooMany) return tooMany;
   try {
-    const rows = listIndex(e => e.kind === "SIMULATION_RESULT" && !/^0x0+$/.test(e.subject), 2000)
-      .map(e => getRecord(e.id))
-      .filter(r => r && r.receipt.status === "confirmed")
+    const entries = await listIndex(e => e.kind === "SIMULATION_RESULT" && !/^0x0+$/.test(e.subject), 2000);
+    const rows = (await getRecords(entries.map(e => e.id)))
+      .filter(r => r.receipt.status === "confirmed")
       .map(r => {
         const c = r!.content as any;
         return {

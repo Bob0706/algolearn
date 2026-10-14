@@ -1,0 +1,17 @@
+# Render Blueprint for the AlgoLearn Python strategy engine.
+# Render dashboard → New → Blueprint → pick this repository → Apply.
+# Then copy the service URL and the generated ENGINE_API_KEY into the Vercel project's
+# STRATEGY_ENGINE_URL and ENGINE_API_KEY environment variables.
+services:
+  - type: web
+    name: algolearn-engine
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: ENGINE_API_KEY
+        generateValue: true
+      - key: SANDBOX_MEMORY_MB
+        value: "384"

@@ -15,7 +15,7 @@
 import { Contract, JsonRpcProvider, NonceManager, Wallet } from "ethers";
 import artifact from "./AlgoLedger.json";
 import { hashJson, ZERO_HASH } from "./canonical";
-import { appendChain, ChainEntry, getRecord, putRecord, readChain, StoredRecord } from "./store";
+import { appendChainLocked, ChainEntry, getRecord, putRecord, readChain, storeBackend, StoredRecord } from "./store";
 import { LedgerKind, LedgerMode, LedgerReceipt } from "../types";
 
 export const KIND_CODES: Record<LedgerKind, number> = {
@@ -68,22 +68,19 @@ async function submit(rec: StoredRecord): Promise<LedgerReceipt> {
 
   if (mode === "local") {
     return enqueue(async () => {
-      const chain = readChain();
-      const existing = chain.find(e => e.id === rec.id);
-      if (existing) return { ...base, status: "confirmed" as const, txHash: existing.entryHash, blockNumber: existing.seq };
-      const prev = chain[chain.length - 1];
-      const body = {
-        seq: (prev?.seq ?? 0) + 1,
-        id: rec.id,
-        kind: rec.kind,
-        contentHash: rec.contentHash,
-        subject: rec.subject,
-        parent: rec.parentId,
-        timestamp: new Date().toISOString(),
-        prevHash: prev?.entryHash ?? ZERO_HASH,
-      };
-      const entry: ChainEntry = { ...body, entryHash: hashJson(body) };
-      appendChain(entry);
+      const entry = await appendChainLocked(rec.id, prev => {
+        const body = {
+          seq: (prev?.seq ?? 0) + 1,
+          id: rec.id,
+          kind: rec.kind,
+          contentHash: rec.contentHash,
+          subject: rec.subject,
+          parent: rec.parentId,
+          timestamp: new Date().toISOString(),
+          prevHash: prev?.entryHash ?? ZERO_HASH,
+        };
+        return { ...body, entryHash: hashJson(body) };
+      });
       return { ...base, status: "confirmed" as const, txHash: entry.entryHash, blockNumber: entry.seq };
     });
   }
@@ -131,7 +128,7 @@ export async function recordOnLedger(kind: LedgerKind, content: unknown, opts: R
   const id = opts.id ?? hashJson({ kind, subject, contentHash });
 
   try {
-    const existing = getRecord(id);
+    const existing = await getRecord(id);
     if (existing && existing.receipt.status === "confirmed") return existing.receipt;
 
     const rec: StoredRecord = existing ?? {
@@ -139,9 +136,9 @@ export async function recordOnLedger(kind: LedgerKind, content: unknown, opts: R
       createdAt: new Date().toISOString(),
       receipt: { id, kind, contentHash, mode, status: "pending" },
     };
-    putRecord(rec, !existing);
+    await putRecord(rec, !existing);
     rec.receipt = await submit(rec);
-    putRecord(rec, false);
+    await putRecord(rec, false);
     return rec.receipt;
   } catch (e: any) {
     console.error("[ledger] record failed", e);
@@ -176,8 +173,8 @@ export interface VerifyResult {
   explanation: string;
 }
 
-function verifyLocalChain(): { ok: boolean; entries: ChainEntry[] } {
-  const entries = readChain();
+async function verifyLocalChain(): Promise<{ ok: boolean; entries: ChainEntry[] }> {
+  const entries = await readChain();
   let prev = ZERO_HASH;
   for (const e of entries) {
     const { entryHash, ...body } = e;
@@ -189,7 +186,7 @@ function verifyLocalChain(): { ok: boolean; entries: ChainEntry[] } {
 
 async function readOnChain(id: string, mode: LedgerMode): Promise<VerifyResult["onChain"]> {
   if (mode === "local") {
-    const { ok, entries } = verifyLocalChain();
+    const { ok, entries } = await verifyLocalChain();
     const e = entries.find(x => x.id === id);
     return e
       ? { exists: true, contentHash: e.contentHash, subject: e.subject, parent: e.parent ?? ZERO_HASH,
@@ -217,10 +214,10 @@ async function readOnChain(id: string, mode: LedgerMode): Promise<VerifyResult["
  */
 export async function verifyRecord(id: string, content?: unknown): Promise<VerifyResult> {
   const mode = ledgerMode();
-  const rec = getRecord(id);
+  const rec = await getRecord(id);
   if (rec && rec.receipt.status !== "confirmed" && mode !== "off") {
     rec.receipt = await submit(rec); // retry records that did not reach the chain earlier
-    putRecord(rec, false);
+    await putRecord(rec, false);
   }
 
   const recomputed = content !== undefined ? hashJson(content) : rec ? hashJson(rec.content) : undefined;
@@ -266,8 +263,9 @@ export async function ledgerHealth(): Promise<{ mode: LedgerMode; ok: boolean; d
   const mode = ledgerMode();
   if (mode === "off") return { mode, ok: true, detail: "Ledger disabled" };
   if (mode === "local") {
-    const { ok, entries } = verifyLocalChain();
-    return { mode, ok, detail: ok ? "Local hash-chained ledger (development mode, not a blockchain)" : "Local chain integrity check FAILED", recordCount: entries.length };
+    const { ok, entries } = await verifyLocalChain();
+    const where = storeBackend() === "redis" ? "stored in Redis" : "stored on this server";
+    return { mode, ok, detail: ok ? `Local hash-chained ledger, ${where} (not a blockchain)` : "Local chain integrity check FAILED", recordCount: entries.length };
   }
   try {
     const { readOnly } = besu();

@@ -4,6 +4,7 @@ import { errorResponse, limited, readJson } from "@/lib/server/http";
 import { startSession } from "@/lib/server/simulator";
 
 export const runtime = "nodejs";
+export const maxDuration = 60; // seconds; data download + sandbox run can exceed the 10 s default on serverless hosts
 
 export async function POST(req: NextRequest) {
   const tooMany = limited(req, "sim-start", 10);

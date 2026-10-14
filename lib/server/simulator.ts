@@ -17,6 +17,7 @@ import { hashJson } from "../ledger/canonical";
 import { recordOnLedger } from "../ledger";
 import { Caller } from "./auth";
 import { InputError } from "../stockService";
+import { redis, redisEnabled } from "./redis";
 
 export const INITIAL_CAPITAL = 100_000;
 const WARMUP_BARS = 50;
@@ -66,7 +67,21 @@ export interface SimResult {
   ledger: LedgerReceipt | null;
 }
 
+// Sessions live in memory on a single server, or in Redis when it is configured (required on
+// serverless hosts, where consecutive requests can reach different instances).
 const sessions: Map<string, Session> = ((globalThis as any).__algolearnSim ??= new Map());
+
+async function saveSession(s: Session): Promise<void> {
+  if (redisEnabled()) await redis(["SET", `sim:${s.id}`, JSON.stringify(s), "EX", Math.ceil(TTL_MS / 1000)]);
+  else sessions.set(s.id, s);
+}
+
+async function loadSession(id: string): Promise<Session | undefined> {
+  if (!/^[0-9a-f]{32}$/.test(id)) return undefined;
+  if (!redisEnabled()) return sessions.get(id);
+  const raw = await redis<string | null>(["GET", `sim:${id}`]);
+  return raw ? (JSON.parse(raw) as Session) : undefined;
+}
 
 function prune() {
   const now = Date.now();
@@ -150,12 +165,12 @@ export async function startSession(caller: Caller, symbol: unknown, period: unkn
     finished: false,
     expiresAt: Date.now() + TTL_MS,
   };
-  sessions.set(s.id, s);
+  await saveSession(s);
   return view(s);
 }
 
-function getOwned(id: unknown, caller: Caller): Session {
-  const s = sessions.get(String(id ?? ""));
+async function getOwned(id: unknown, caller: Caller): Promise<Session> {
+  const s = await loadSession(String(id ?? ""));
   if (!s) throw new InputError("Simulation session not found or expired. Please start a new one.");
   if (s.subject !== caller.subject) throw new InputError("This simulation belongs to a different user.");
   return s;
@@ -169,7 +184,7 @@ export interface StepInput {
 }
 
 export async function stepSession(caller: Caller, input: StepInput): Promise<SessionView & { error?: string }> {
-  const s = getOwned(input.sessionId, caller);
+  const s = await getOwned(input.sessionId, caller);
   if (s.finished) return view(s);
   s.expiresAt = Date.now() + TTL_MS;
   let error: string | undefined;
@@ -213,6 +228,7 @@ export async function stepSession(caller: Caller, input: StepInput): Promise<Ses
   s.cursor = Math.min(s.bars.length - 1, s.cursor + advance);
 
   if (s.cursor >= s.bars.length - 1 || input.end === true) await finish(s);
+  await saveSession(s);
   return { ...view(s, input.action && !advance ? s.cursor : from), error };
 }
 
