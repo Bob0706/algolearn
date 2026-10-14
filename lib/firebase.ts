@@ -1,311 +1,206 @@
-// lib/firebase.ts — Firebase initialization with local storage fallback
+// lib/firebase.ts — Firebase auth + Firestore, with an explicit local DEMO mode.
+//
+// When NEXT_PUBLIC_FIREBASE_* is not configured the app runs in demo mode: a local
+// "Demo Trader" account whose data lives in this browser's localStorage. Demo mode
+// is never entered silently when Firebase IS configured — sign-in errors are shown.
 
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import {
-  getAuth,
-  GoogleAuthProvider,
-  signInWithPopup,
-  signOut as firebaseSignOut,
-  onAuthStateChanged,
-  User,
+  Auth, getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut as firebaseSignOut,
 } from "firebase/auth";
 import {
-  getFirestore,
-  doc,
-  setDoc,
-  getDoc,
-  updateDoc,
-  collection,
-  addDoc,
-  getDocs,
-  query,
-  where,
-  orderBy,
-  serverTimestamp,
+  Firestore, addDoc, arrayUnion, collection, doc, getDoc, getDocs, getFirestore, increment, query,
+  serverTimestamp, setDoc, updateDoc, where,
 } from "firebase/firestore";
 
-// ─── Firebase Config ──────────────────────────────────────────────────────────
-const isFirebaseConfigured = Boolean(
-  process.env.NEXT_PUBLIC_FIREBASE_API_KEY &&
-  process.env.NEXT_PUBLIC_FIREBASE_API_KEY !== "your_firebase_api_key"
+export const isFirebaseConfigured = Boolean(
+  process.env.NEXT_PUBLIC_FIREBASE_API_KEY && process.env.NEXT_PUBLIC_FIREBASE_API_KEY !== "your_firebase_api_key",
 );
 
-const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyDemoFallbackKeyForPreview001",
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "algolearn-preview.firebaseapp.com",
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "algolearn-preview",
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "algolearn-preview.appspot.com",
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "123456789012",
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "1:123456789012:web:demoapplet001",
-};
-
-let app: FirebaseApp;
-try {
-  app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-} catch (e) {
-  console.warn("[Firebase] Initialization warning, using fallback:", e);
-  app = getApps()[0] || initializeApp(firebaseConfig, "fallback");
+let app: FirebaseApp | null = null;
+let auth: Auth | null = null;
+let db: Firestore | null = null;
+if (isFirebaseConfigured) {
+  app = getApps().length ? getApp() : initializeApp({
+    apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+    authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+    appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  });
+  auth = getAuth(app);
+  db = getFirestore(app);
 }
 
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-
-// ─── Local Mock Fallback Storage Helpers ────────────────────────────────────
-const LOCAL_USER_KEY = "algolearn_mock_user";
-const LOCAL_STRATEGIES_KEY = "algolearn_mock_strategies";
-const LOCAL_USER_DATA_KEY = "algolearn_mock_user_data";
-
-let authSubscribers: ((user: any | null) => void)[] = [];
-
-// Demo guest user
-const DEMO_USER = {
-  uid: "demo-trader-01",
-  displayName: "Algo Trader",
-  email: "trader@algolearn.in",
-  photoURL: null,
-};
-
-// ─── Auth Helpers ─────────────────────────────────────────────────────────────
-const googleProvider = new GoogleAuthProvider();
-
-export async function signInWithGoogle(): Promise<any> {
-  if (isFirebaseConfigured) {
-    try {
-      const result = await signInWithPopup(auth, googleProvider);
-      await createUserDocIfNotExists(result.user);
-      return result.user;
-    } catch (err) {
-      console.warn("[Firebase] Popup sign-in error, activating demo user session:", err);
-    }
-  }
-
-  // Fallback demo user
-  if (typeof window !== "undefined") {
-    localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(DEMO_USER));
-  }
-  authSubscribers.forEach(cb => cb(DEMO_USER));
-  await createUserDocIfNotExists(DEMO_USER as any);
-  return DEMO_USER;
+export interface AppUser {
+  uid: string;
+  displayName: string | null;
+  email: string | null;
+  photoURL: string | null;
+  isDemo: boolean;
 }
 
-export async function signOut(): Promise<void> {
-  if (isFirebaseConfigured) {
-    try {
-      await firebaseSignOut(auth);
-    } catch {}
-  }
-  if (typeof window !== "undefined") {
-    localStorage.removeItem(LOCAL_USER_KEY);
-  }
-  authSubscribers.forEach(cb => cb(null));
+export interface SimulatorStats { sessions: number; totalTrades: number; wins: number; losses: number; totalPnL: number }
+
+export interface UserDoc {
+  uid: string;
+  displayName: string | null;
+  lessonsCompleted: string[];
+  simulatorStats: SimulatorStats;
 }
 
-export function onAuthChange(callback: (user: any | null) => void) {
-  authSubscribers.push(callback);
-
-  // Check local storage demo user first if available
-  if (typeof window !== "undefined") {
-    const stored = localStorage.getItem(LOCAL_USER_KEY);
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        callback(parsed);
-      } catch {}
-    }
-  }
-
-  if (isFirebaseConfigured) {
-    return onAuthStateChanged(auth, (firebaseUser) => {
-      if (firebaseUser) {
-        callback(firebaseUser);
-      } else {
-        const stored = typeof window !== "undefined" ? localStorage.getItem(LOCAL_USER_KEY) : null;
-        callback(stored ? JSON.parse(stored) : null);
-      }
-    });
-  }
-
-  return () => {
-    authSubscribers = authSubscribers.filter(cb => cb !== callback);
-  };
-}
-
-// ─── Firestore / Persistence Helpers ─────────────────────────────────────────
-
-export async function createUserDocIfNotExists(user: any) {
-  if (isFirebaseConfigured) {
-    try {
-      const userRef = doc(db, "users", user.uid);
-      const snap = await getDoc(userRef);
-      if (!snap.exists()) {
-        await setDoc(userRef, {
-          uid: user.uid,
-          displayName: user.displayName,
-          email: user.email,
-          photoURL: user.photoURL,
-          createdAt: serverTimestamp(),
-          lessonsCompleted: [],
-          simulatorStats: { totalTrades: 0, wins: 0, losses: 0, totalPnL: 0 },
-        });
-      }
-      return;
-    } catch (e) {
-      console.warn("[Firebase] createUserDocIfNotExists fallback:", e);
-    }
-  }
-
-  // Local fallback
-  if (typeof window !== "undefined") {
-    const existing = localStorage.getItem(LOCAL_USER_DATA_KEY);
-    if (!existing) {
-      const initial = {
-        uid: user.uid,
-        displayName: user.displayName,
-        email: user.email,
-        photoURL: user.photoURL,
-        lessonsCompleted: ["l1"],
-        simulatorStats: { totalTrades: 0, wins: 0, losses: 0, totalPnL: 0 },
-      };
-      localStorage.setItem(LOCAL_USER_DATA_KEY, JSON.stringify(initial));
-    }
-  }
-}
-
-export async function getUserDoc(uid: string) {
-  if (isFirebaseConfigured) {
-    try {
-      const snap = await getDoc(doc(db, "users", uid));
-      if (snap.exists()) return snap.data();
-    } catch (e) {
-      console.warn("[Firebase] getUserDoc fallback:", e);
-    }
-  }
-
-  if (typeof window !== "undefined") {
-    const stored = localStorage.getItem(LOCAL_USER_DATA_KEY);
-    if (stored) {
-      try {
-        return JSON.parse(stored);
-      } catch {}
-    }
-    return {
-      uid,
-      displayName: "Algo Trader",
-      email: "trader@algolearn.in",
-      lessonsCompleted: ["l1"],
-      simulatorStats: { totalTrades: 0, wins: 0, losses: 0, totalPnL: 0 },
-    };
-  }
-  return null;
-}
-
-export async function saveStrategy(uid: string, strategy: {
+export interface SavedStrategy {
+  id: string;
+  uid: string;
   name: string;
   description: string;
   code: string;
   symbol?: string;
-  backtestResult?: unknown;
-}) {
-  if (isFirebaseConfigured) {
-    try {
-      return await addDoc(collection(db, "strategies"), {
-        ...strategy,
-        uid,
-        createdAt: serverTimestamp(),
-      });
-    } catch (e) {
-      console.warn("[Firebase] saveStrategy fallback:", e);
-    }
-  }
+  backtestResult?: Record<string, unknown>;
+  ledgerId?: string;
+  createdAt: string | number | { seconds: number };
+}
 
-  if (typeof window !== "undefined") {
-    const key = `${LOCAL_STRATEGIES_KEY}_${uid}`;
+const EMPTY_STATS: SimulatorStats = { sessions: 0, totalTrades: 0, wins: 0, losses: 0, totalPnL: 0 };
+
+// ─── demo-mode storage ─────────────────────────────────────────────────────
+const DEMO_USER: AppUser = { uid: "demo-trader", displayName: "Demo Trader", email: null, photoURL: null, isDemo: true };
+const LS_SESSION = "algolearn_demo_session";
+const lsKey = (uid: string, what: string) => `algolearn_${what}_${uid}`;
+
+function lsGet<T>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
+  try {
     const raw = localStorage.getItem(key);
-    const list = raw ? JSON.parse(raw) : [];
-    const newEntry = {
-      id: `strat_${Date.now()}`,
-      ...strategy,
-      uid,
-      createdAt: new Date().toISOString(),
-    };
-    list.unshift(newEntry);
-    localStorage.setItem(key, JSON.stringify(list));
-    return newEntry;
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function lsSet(key: string, value: unknown) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full or blocked */ }
+}
+
+let demoSubscribers: ((u: AppUser | null) => void)[] = [];
+
+// ─── auth ───────────────────────────────────────────────────────────────────
+const toAppUser = (u: { uid: string; displayName: string | null; email: string | null; photoURL: string | null }): AppUser => ({
+  uid: u.uid, displayName: u.displayName, email: u.email, photoURL: u.photoURL, isDemo: false,
+});
+
+export async function signInWithGoogle(): Promise<AppUser> {
+  if (auth) {
+    const result = await signInWithPopup(auth, new GoogleAuthProvider()); // errors propagate to the UI
+    const user = toAppUser(result.user);
+    await createUserDocIfNotExists(user);
+    return user;
+  }
+  lsSet(LS_SESSION, true);
+  demoSubscribers.forEach(cb => cb(DEMO_USER));
+  return DEMO_USER;
+}
+
+export async function signOut(): Promise<void> {
+  if (auth) await firebaseSignOut(auth);
+  if (typeof window !== "undefined") localStorage.removeItem(LS_SESSION);
+  demoSubscribers.forEach(cb => cb(null));
+}
+
+export function onAuthChange(callback: (user: AppUser | null) => void): () => void {
+  if (auth) return onAuthStateChanged(auth, u => callback(u ? toAppUser(u) : null));
+  demoSubscribers.push(callback);
+  callback(lsGet(LS_SESSION, false) ? DEMO_USER : null);
+  return () => { demoSubscribers = demoSubscribers.filter(cb => cb !== callback); };
+}
+
+/** Firebase ID token for API calls (lets the server attribute ledger records). */
+export async function getIdToken(): Promise<string | null> {
+  try {
+    return (await auth?.currentUser?.getIdToken()) ?? null;
+  } catch {
+    return null;
   }
 }
 
-export async function getUserStrategies(uid: string) {
-  if (isFirebaseConfigured) {
-    try {
-      const q = query(
-        collection(db, "strategies"),
-        where("uid", "==", uid),
-        orderBy("createdAt", "desc")
-      );
-      const snap = await getDocs(q);
-      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    } catch (e) {
-      console.warn("[Firebase] getUserStrategies fallback:", e);
-    }
-  }
-
-  if (typeof window !== "undefined") {
-    const key = `${LOCAL_STRATEGIES_KEY}_${uid}`;
-    const raw = localStorage.getItem(key);
-    if (raw) {
-      try {
-        return JSON.parse(raw);
-      } catch {}
-    }
-  }
-  return [];
-}
-
-export async function markLessonComplete(uid: string, lessonId: string) {
-  if (isFirebaseConfigured) {
-    try {
-      const userRef = doc(db, "users", uid);
-      const snap = await getDoc(userRef);
-      if (snap.exists()) {
-        const data = snap.data();
-        const completed: string[] = data.lessonsCompleted || [];
-        if (!completed.includes(lessonId)) {
-          await updateDoc(userRef, { lessonsCompleted: [...completed, lessonId] });
-        }
-      }
-      return;
-    } catch (e) {
-      console.warn("[Firebase] markLessonComplete fallback:", e);
-    }
-  }
-
-  if (typeof window !== "undefined") {
-    const stored = localStorage.getItem(LOCAL_USER_DATA_KEY);
-    const data = stored ? JSON.parse(stored) : { uid, lessonsCompleted: [] };
-    const completed: string[] = data.lessonsCompleted || [];
-    if (!completed.includes(lessonId)) {
-      data.lessonsCompleted = [...completed, lessonId];
-      localStorage.setItem(LOCAL_USER_DATA_KEY, JSON.stringify(data));
-    }
+// ─── user document ────────────────────────────────────────────────────────
+export async function createUserDocIfNotExists(user: AppUser) {
+  if (!db || user.isDemo) return;
+  const ref = doc(db, "users", user.uid);
+  if (!(await getDoc(ref)).exists()) {
+    await setDoc(ref, {
+      uid: user.uid, displayName: user.displayName, createdAt: serverTimestamp(),
+      lessonsCompleted: [], simulatorStats: EMPTY_STATS,
+    });
   }
 }
 
-export async function updateSimulatorStats(uid: string, stats: {
-  totalTrades: number; wins: number; losses: number; totalPnL: number;
-}) {
-  if (isFirebaseConfigured) {
-    try {
-      await updateDoc(doc(db, "users", uid), { simulatorStats: stats });
-      return;
-    } catch (e) {
-      console.warn("[Firebase] updateSimulatorStats fallback:", e);
-    }
+export async function getUserDoc(user: AppUser): Promise<UserDoc> {
+  const fallback: UserDoc = { uid: user.uid, displayName: user.displayName, lessonsCompleted: [], simulatorStats: EMPTY_STATS };
+  if (db && !user.isDemo) {
+    const snap = await getDoc(doc(db, "users", user.uid));
+    if (!snap.exists()) return fallback;
+    const d = snap.data() as Partial<UserDoc>;
+    return { ...fallback, ...d, simulatorStats: { ...EMPTY_STATS, ...(d.simulatorStats ?? {}) } };
   }
+  return { ...fallback, ...lsGet<Partial<UserDoc>>(lsKey(user.uid, "user"), {}) };
+}
 
-  if (typeof window !== "undefined") {
-    const stored = localStorage.getItem(LOCAL_USER_DATA_KEY);
-    const data = stored ? JSON.parse(stored) : { uid };
-    data.simulatorStats = stats;
-    localStorage.setItem(LOCAL_USER_DATA_KEY, JSON.stringify(data));
+export async function markLessonComplete(user: AppUser, lessonId: string) {
+  if (db && !user.isDemo) {
+    await updateDoc(doc(db, "users", user.uid), { lessonsCompleted: arrayUnion(lessonId) });
+    return;
   }
+  const d = await getUserDoc(user);
+  if (!d.lessonsCompleted.includes(lessonId)) {
+    lsSet(lsKey(user.uid, "user"), { ...d, lessonsCompleted: [...d.lessonsCompleted, lessonId] });
+  }
+}
+
+/** Adds one finished session to the running totals (previously each session overwrote the last). */
+export async function addSimulatorSession(user: AppUser, s: { trades: number; wins: number; losses: number; pnl: number }) {
+  if (db && !user.isDemo) {
+    await updateDoc(doc(db, "users", user.uid), {
+      "simulatorStats.sessions": increment(1),
+      "simulatorStats.totalTrades": increment(s.trades),
+      "simulatorStats.wins": increment(s.wins),
+      "simulatorStats.losses": increment(s.losses),
+      "simulatorStats.totalPnL": increment(s.pnl),
+    });
+    return;
+  }
+  const d = await getUserDoc(user);
+  const st = d.simulatorStats;
+  lsSet(lsKey(user.uid, "user"), {
+    ...d,
+    simulatorStats: {
+      sessions: st.sessions + 1, totalTrades: st.totalTrades + s.trades, wins: st.wins + s.wins,
+      losses: st.losses + s.losses, totalPnL: st.totalPnL + s.pnl,
+    },
+  });
+}
+
+// ─── strategies ──────────────────────────────────────────────────────────
+export async function saveStrategy(user: AppUser, strategy: Omit<SavedStrategy, "id" | "uid" | "createdAt">) {
+  if (db && !user.isDemo) {
+    const ref = await addDoc(collection(db, "strategies"), { ...strategy, uid: user.uid, createdAt: serverTimestamp() });
+    return ref.id;
+  }
+  const list = lsGet<SavedStrategy[]>(lsKey(user.uid, "strategies"), []);
+  const id = `strat_${Date.now()}`;
+  list.unshift({ ...strategy, id, uid: user.uid, createdAt: Date.now() });
+  lsSet(lsKey(user.uid, "strategies"), list);
+  return id;
+}
+
+export async function getUserStrategies(user: AppUser): Promise<SavedStrategy[]> {
+  if (db && !user.isDemo) {
+    // Sort client-side: where()+orderBy() on different fields needs a composite index.
+    const snap = await getDocs(query(collection(db, "strategies"), where("uid", "==", user.uid)));
+    const seconds = (c: SavedStrategy["createdAt"]) => (typeof c === "object" && c ? c.seconds : Number(c) / 1000 || 0);
+    return snap.docs
+      .map(d => ({ id: d.id, ...(d.data() as Omit<SavedStrategy, "id">) }))
+      .sort((a, b) => seconds(b.createdAt) - seconds(a.createdAt));
+  }
+  return lsGet<SavedStrategy[]>(lsKey(user.uid, "strategies"), []);
 }

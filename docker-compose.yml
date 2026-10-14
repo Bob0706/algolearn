@@ -1,0 +1,61 @@
+# AlgoLearn full stack:  docker compose up --build
+#   besu    – Hyperledger Besu node (QBFT, permissioned accounts, zero gas price)
+#   engine  – sandboxed Python strategy engine (no internet access)
+#   web     – Next.js app (UI + API routes + ledger service)
+# After the first start, deploy the contract once:  npm run ledger:deploy
+# and put the printed LEDGER_CONTRACT_ADDRESS in .env.local.
+
+services:
+  besu:
+    image: hyperledger/besu:25.10.0
+    command:
+      - --genesis-file=/config/genesis.json
+      - --node-private-key-file=/config/node.key
+      - --data-path=/data
+      - --rpc-http-enabled
+      - --rpc-http-host=0.0.0.0
+      - --rpc-http-port=8545
+      - --rpc-http-api=ETH,NET,QBFT,WEB3,TXPOOL
+      - --host-allowlist=*
+      - --rpc-http-cors-origins=none
+      - --min-gas-price=0
+      - --permissions-accounts-config-file-enabled
+      - --permissions-accounts-config-file=/permissions/permissions_config.toml
+      - --profile=ENTERPRISE
+    volumes:
+      - ./blockchain/besu/config:/config:ro
+      - ./blockchain/besu/permissions:/permissions   # writable: allowlist can be edited via perm_* RPC
+      - besu-data:/data
+    ports:
+      - "127.0.0.1:8545:8545"   # JSON-RPC, local only
+    restart: unless-stopped
+
+  engine:
+    build: ./backend
+    environment:
+      ENGINE_API_KEY: ${ENGINE_API_KEY:-}
+    networks: [engine-internal]
+    restart: unless-stopped
+
+  web:
+    build: .
+    env_file: [.env.local]
+    environment:
+      STRATEGY_ENGINE_URL: http://engine:8000
+      LEDGER_RPC_URL: http://besu:8545
+      LEDGER_DATA_DIR: /data/ledger
+    volumes:
+      - ledger-data:/data/ledger
+    ports:
+      - "3000:3000"
+    depends_on: [besu, engine]
+    networks: [default, engine-internal]
+    restart: unless-stopped
+
+networks:
+  engine-internal:
+    internal: true   # the strategy engine can be reached by "web" but has no route to the internet
+
+volumes:
+  besu-data:
+  ledger-data:

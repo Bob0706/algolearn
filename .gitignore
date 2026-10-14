@@ -60,3 +60,10 @@ logs/
 # ── Misc ──────────────────────────────────
 *.pem
 .vercel
+
+# ── AlgoLearn runtime data ────────────────
+.ledger-data/
+!.env.example
+
+# Next.js generated
+next-env.d.ts

@@ -1,167 +1,127 @@
-// lib/stockService.ts — Yahoo Finance API fetcher with realistic fallback
+// lib/stockService.ts — server-side market data from Yahoo Finance.
+//
+// If Yahoo is unreachable a deterministic synthetic series can be generated so
+// the app still works offline, but it is ALWAYS labelled source: "synthetic"
+// and the UI shows that these are not real prices. Set ALLOW_SYNTHETIC_DATA=false
+// in production to fail instead.
 
-export interface OHLCVBar {
-  date: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
+import { MarketData, OHLCVBar } from "./types";
+import { hashJson } from "./ledger/canonical";
+
+export const PERIODS = ["1mo", "3mo", "6mo", "1y", "2y", "5y"] as const;
+export type Period = (typeof PERIODS)[number];
+
+const SYMBOL_RE = /^\^?[A-Z0-9&\-]{1,20}(\.(NS|BO))?$/;
+
+export class InputError extends Error {}
+
+export function validateSymbol(raw: unknown): string {
+  const s = String(raw ?? "").trim().toUpperCase();
+  if (!SYMBOL_RE.test(s)) throw new InputError("Invalid symbol. Use an NSE/BSE ticker like RELIANCE.NS or ^NSEI.");
+  return s;
+}
+
+export function validatePeriod(raw: unknown): Period {
+  const p = String(raw ?? "1y");
+  if (!(PERIODS as readonly string[]).includes(p)) throw new InputError(`Invalid period. Use one of ${PERIODS.join(", ")}.`);
+  return p as Period;
 }
 
 const BASE_PRICES: Record<string, number> = {
-  "RELIANCE.NS": 2850,
-  "TCS.NS": 4120,
-  "INFY.NS": 1820,
-  "HDFCBANK.NS": 1640,
-  "ICICIBANK.NS": 1210,
-  "HINDUNILVR.NS": 2720,
-  "BAJFINANCE.NS": 7350,
-  "WIPRO.NS": 540,
-  "LT.NS": 3680,
-  "SBIN.NS": 810,
-  "AXISBANK.NS": 1180,
-  "MARUTI.NS": 12400,
-  "TITAN.NS": 3450,
-  "SUNPHARMA.NS": 1780,
-  "ASIANPAINT.NS": 2980,
-  "KOTAKBANK.NS": 1820,
-  "ITC.NS": 490,
-  "HCLTECH.NS": 1740,
-  "M&M.NS": 2960,
-  "BHARTIARTL.NS": 1540,
-  "^NSEI": 25200,
-  "^BSESN": 82600,
+  "RELIANCE.NS": 2850, "TCS.NS": 4120, "INFY.NS": 1820, "HDFCBANK.NS": 1640, "ICICIBANK.NS": 1210,
+  "HINDUNILVR.NS": 2720, "BAJFINANCE.NS": 7350, "WIPRO.NS": 540, "LT.NS": 3680, "SBIN.NS": 810,
+  "AXISBANK.NS": 1180, "MARUTI.NS": 12400, "TITAN.NS": 3450, "SUNPHARMA.NS": 1780, "ASIANPAINT.NS": 2980,
+  "KOTAKBANK.NS": 1820, "ITC.NS": 490, "HCLTECH.NS": 1740, "M&M.NS": 2960, "BHARTIARTL.NS": 1540,
+  "^NSEI": 25200, "^BSESN": 82600,
 };
 
-export async function fetchStockDataFromSource(symbol: string, period: string = "1y"): Promise<OHLCVBar[]> {
-  const normalizedSymbol = symbol.trim().toUpperCase();
+const allowSynthetic = () => (process.env.ALLOW_SYNTHETIC_DATA ?? "true").toLowerCase() !== "false";
 
-  // Try real Yahoo Finance API first
+async function fetchYahoo(symbol: string, period: Period): Promise<OHLCVBar[] | null> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${period}&interval=1d&includePrePost=false`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
   try {
-    const rangeMap: Record<string, string> = {
-      "1mo": "1mo",
-      "3mo": "3mo",
-      "6mo": "6mo",
-      "1y": "1y",
-      "2y": "2y",
-      "5y": "5y",
-    };
-    const validRange = rangeMap[period] || "1y";
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(normalizedSymbol)}?range=${validRange}&interval=1d&includePrePost=false`;
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
-
     const res = await fetch(url, {
       signal: controller.signal,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json",
-      },
-      next: { revalidate: 300 }, // cache for 5 minutes
+      headers: { "User-Agent": "Mozilla/5.0 (AlgoLearn educational backtester)", Accept: "application/json" },
+      next: { revalidate: 300 },
     });
-    clearTimeout(timeout);
-
-    if (res.ok) {
-      const json = await res.json();
-      const result = json?.chart?.result?.[0];
-      if (result && result.timestamp && result.indicators?.quote?.[0]) {
-        const timestamps: number[] = result.timestamp;
-        const quotes = result.indicators.quote[0];
-        const bars: OHLCVBar[] = [];
-
-        for (let i = 0; i < timestamps.length; i++) {
-          const open = quotes.open?.[i];
-          const high = quotes.high?.[i];
-          const low = quotes.low?.[i];
-          const close = quotes.close?.[i];
-          const volume = quotes.volume?.[i] ?? 100000;
-
-          if (open != null && high != null && low != null && close != null && !isNaN(close)) {
-            const dateObj = new Date(timestamps[i] * 1000);
-            const dateStr = dateObj.toISOString().split("T")[0];
-            bars.push({
-              date: dateStr,
-              open: Math.round(open * 100) / 100,
-              high: Math.round(high * 100) / 100,
-              low: Math.round(low * 100) / 100,
-              close: Math.round(close * 100) / 100,
-              volume: Math.round(volume),
-            });
-          }
-        }
-
-        if (bars.length >= 20) {
-          return bars;
-        }
-      }
+    if (!res.ok) return null;
+    const json = await res.json();
+    const result = json?.chart?.result?.[0];
+    const ts: number[] | undefined = result?.timestamp;
+    const q = result?.indicators?.quote?.[0];
+    if (!ts || !q) return null;
+    // Yahoo timestamps are the session open in exchange time; use the exchange's offset for the date.
+    const gmtOffset: number = result?.meta?.gmtoffset ?? 19800;
+    const bars: OHLCVBar[] = [];
+    for (let i = 0; i < ts.length; i++) {
+      const [o, h, l, c] = [q.open?.[i], q.high?.[i], q.low?.[i], q.close?.[i]];
+      if ([o, h, l, c].some(v => v == null || Number.isNaN(v))) continue;
+      const date = new Date((ts[i] + gmtOffset) * 1000).toISOString().slice(0, 10);
+      if (bars.length && bars[bars.length - 1].date === date) bars.pop(); // intraday duplicate of today
+      bars.push({
+        date,
+        open: Math.round(o * 100) / 100,
+        high: Math.round(h * 100) / 100,
+        low: Math.round(l * 100) / 100,
+        close: Math.round(c * 100) / 100,
+        volume: Math.round(q.volume?.[i] ?? 0),
+      });
     }
-  } catch (err) {
-    console.warn(`[stockService] Yahoo Finance fetch failed for ${normalizedSymbol}, using fallback generator:`, err);
+    return bars.length >= 20 ? bars : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  // Fallback: Generate realistic daily historical bars based on base price
-  return generateDeterministicStockData(normalizedSymbol, period);
 }
 
-function generateDeterministicStockData(symbol: string, period: string): OHLCVBar[] {
-  const daysCountMap: Record<string, number> = {
-    "1mo": 22,
-    "3mo": 65,
-    "6mo": 125,
-    "1y": 250,
-    "2y": 500,
-    "5y": 1250,
-  };
-  const numDays = daysCountMap[period] || 250;
-  const basePrice = BASE_PRICES[symbol] || 1500;
+export async function getMarketData(symbolRaw: unknown, periodRaw: unknown): Promise<MarketData> {
+  const symbol = validateSymbol(symbolRaw);
+  const period = validatePeriod(periodRaw);
 
-  // Simple deterministic seed from symbol characters
-  let seed = 0;
-  for (let i = 0; i < symbol.length; i++) {
-    seed = (seed << 5) - seed + symbol.charCodeAt(i);
+  const real = await fetchYahoo(symbol, period);
+  if (real) return { symbol, period, source: "yahoo", bars: real, dataHash: hashJson(real) };
+
+  if (!allowSynthetic()) {
+    throw new Error(`Could not fetch market data for ${symbol} from Yahoo Finance. Please try again later.`);
   }
-  const seededRandom = () => {
+  console.warn(`[stockService] Yahoo Finance unavailable for ${symbol}; serving SYNTHETIC data`);
+  const bars = generateSyntheticBars(symbol, period);
+  return { symbol, period, source: "synthetic", bars, dataHash: hashJson(bars) };
+}
+
+/** Deterministic random-walk prices. NOT real market data. Dates are fixed so results are reproducible. */
+function generateSyntheticBars(symbol: string, period: Period): OHLCVBar[] {
+  const counts: Record<Period, number> = { "1mo": 22, "3mo": 65, "6mo": 125, "1y": 250, "2y": 500, "5y": 1250 };
+  const numDays = counts[period];
+  const base = BASE_PRICES[symbol] || 1500;
+
+  let seed = 0;
+  for (let i = 0; i < symbol.length; i++) seed = (seed * 31 + symbol.charCodeAt(i)) % 233280;
+  const rand = () => {
     seed = (seed * 9301 + 49297) % 233280;
     return seed / 233280;
   };
 
-  const bars: OHLCVBar[] = [];
-  const now = new Date();
-  let currentClose = basePrice * 0.85;
-
   const dates: string[] = [];
-  let d = new Date(now.getTime() - numDays * 24 * 60 * 60 * 1000 * 1.45);
-  while (dates.length < numDays && d <= now) {
-    const dayOfWeek = d.getDay();
-    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-      dates.push(d.toISOString().split("T")[0]);
-    }
-    d.setDate(d.getDate() + 1);
+  const d = new Date(Date.UTC(2020, 0, 1));
+  while (dates.length < numDays) {
+    const dow = d.getUTCDay();
+    if (dow !== 0 && dow !== 6) dates.push(d.toISOString().slice(0, 10));
+    d.setUTCDate(d.getUTCDate() + 1);
   }
 
-  for (let i = 0; i < dates.length; i++) {
-    const dailyReturn = (seededRandom() - 0.485) * 0.035;
-    const prevClose = currentClose;
-    const open = Math.round((prevClose * (1 + (seededRandom() - 0.5) * 0.01)) * 100) / 100;
-    currentClose = Math.round((open * (1 + dailyReturn)) * 100) / 100;
-
-    const highMultiplier = 1 + seededRandom() * 0.015;
-    const lowMultiplier = 1 - seededRandom() * 0.015;
-    const high = Math.round(Math.max(open, currentClose) * highMultiplier * 100) / 100;
-    const low = Math.round(Math.min(open, currentClose) * lowMultiplier * 100) / 100;
-    const volume = Math.round(500000 + seededRandom() * 1500000);
-
-    bars.push({
-      date: dates[i],
-      open,
-      high,
-      low,
-      close: currentClose,
-      volume,
-    });
+  const bars: OHLCVBar[] = [];
+  let close = base * 0.85;
+  for (const date of dates) {
+    const open = Math.round(close * (1 + (rand() - 0.5) * 0.01) * 100) / 100;
+    close = Math.round(open * (1 + (rand() - 0.485) * 0.035) * 100) / 100;
+    const high = Math.round(Math.max(open, close) * (1 + rand() * 0.015) * 100) / 100;
+    const low = Math.round(Math.min(open, close) * (1 - rand() * 0.015) * 100) / 100;
+    bars.push({ date, open, high, low, close, volume: Math.round(500000 + rand() * 1500000) });
   }
-
   return bars;
 }
