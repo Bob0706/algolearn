@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const m = await getMarketData(searchParams.get("symbol") ?? "RELIANCE.NS", searchParams.get("period") ?? "1y");
-    return NextResponse.json({ symbol: m.symbol, period: m.period, source: m.source, data_hash: m.dataHash, data: m.bars });
+    return NextResponse.json({ symbol: m.symbol, period: m.period, source: m.source, note: m.note, data_hash: m.dataHash, data: m.bars });
   } catch (err) {
     return errorResponse(err);
   }

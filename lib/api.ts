@@ -86,6 +86,7 @@ export interface SimView {
   symbol: string;
   period: string;
   dataSource: DataSource;
+  note?: string;
   totalBars: number;
   cursor: number;
   bars: OHLCVBar[];

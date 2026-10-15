@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
       signal: today,
       previousSignal: previous,
       ledger,
-      note: market.source === "synthetic" ? "Live data unavailable: synthetic prices shown, signal not recorded." : undefined,
+      note: market.source === "synthetic" ? "Live data unavailable: synthetic prices shown, signal not recorded." : market.note,
     });
   } catch (err) {
     return errorResponse(err);
