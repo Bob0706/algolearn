@@ -4,7 +4,7 @@
 //   NSE  https://archives.nseindia.com/content/equities/EQUITY_L.csv
 //   NSE  https://archives.nseindia.com/emerge/corporates/content/SME_EQUITY_L.csv
 //   BSE  https://api.bseindia.com/BseIndiaAPI/api/ListofScripData/w?…&segment=Equity&status=Active
-// The merged list is cached in MARKET_DATA_DIR/universe.json and refreshed every 24 h in
+// The merged list is cached in MARKET_DATA_DIR/universe-v2.json and refreshed every 24 h in
 // the background. If the exchanges cannot be reached and no cache exists, a small built-in
 // list of large caps is used and the API says so (`complete: false`).
 //
@@ -167,7 +167,7 @@ export function parseUpstoxInstruments(json: unknown, exchange: "NSE" | "BSE"): 
 // ─── loading & caching ──────────────────────────────────────────────────
 
 const dataDir = () => path.resolve(/*turbopackIgnore: true*/ process.env.MARKET_DATA_DIR || (process.env.VERCEL ? "/tmp/.market-data" : ".market-data"));
-const cacheFile = () => path.join(dataDir(), "universe.json");
+const cacheFile = () => path.join(dataDir(), "universe-v2.json");
 
 const g = globalThis as any;
 
@@ -245,7 +245,7 @@ export function saveUniverse(u: Universe) {
 /** Shares the downloaded list between serverless instances. Best effort. */
 async function saveShared(u: Universe) {
   if (!redisEnabled()) return;
-  await redis(["SET", "universe:v1", JSON.stringify(u), "EX", 3 * 24 * 3600]).catch(e => console.warn("[universe] Redis save failed:", e?.message));
+  await redis(["SET", "universe:v2", JSON.stringify(u), "EX", 3 * 24 * 3600]).catch(e => console.warn("[universe] Redis save failed:", e?.message));
 }
 
 async function readCache(): Promise<Universe | null> {
@@ -256,7 +256,7 @@ async function readCache(): Promise<Universe | null> {
   } catch { /* no local cache */ }
   if (redisEnabled()) {
     try {
-      const raw = await redis<string | null>(["GET", "universe:v1"]);
+      const raw = await redis<string | null>(["GET", "universe:v2"]);
       return raw ? valid(JSON.parse(raw)) : null;
     } catch { /* fall through to download */ }
   }

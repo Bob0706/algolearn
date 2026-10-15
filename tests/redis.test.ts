@@ -82,7 +82,7 @@ describe.skipIf(!URL_)("Redis (Upstash REST) storage for serverless hosts", () =
     const { buildUniverse, getUniverse, parseNseList } = await import("@/lib/server/universe");
     const nse = parseNseList(fs.readFileSync(path.join(__dirname, "fixtures", "EQUITY_L.csv"), "utf8"));
     const u = buildUniverse(nse, [], [{ symbol: "500325.BO", exchange: "BSE", code: "500325", name: "Reliance Industries Ltd" }]);
-    await redis(["SET", "universe:v1", JSON.stringify(u)]);
+    await redis(["SET", "universe:v2", JSON.stringify(u)]);
     process.env.MARKET_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "algolearn-mkt-empty-"));
     const g = globalThis as any;
     g.__algolearnUniverse = undefined;

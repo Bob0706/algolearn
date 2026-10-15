@@ -123,6 +123,6 @@ describe("npm run symbols:sync (offline import)", () => {
     const out = execFileSync("npx", ["tsx", "scripts/sync-symbols.ts", "--nse", "tests/fixtures/EQUITY_L.csv", "--sme", "tests/fixtures/SME_EQUITY_L.csv", "--bse", "tests/fixtures/bse.json"],
       { env: { ...process.env, MARKET_DATA_DIR: dir }, encoding: "utf8" });
     expect(out).toMatch(/Saved 9 listings: NSE 5, NSE SME 1, BSE 3/);
-    expect(JSON.parse(fs.readFileSync(path.join(dir, "universe.json"), "utf8")).instruments).toHaveLength(14);
+    expect(JSON.parse(fs.readFileSync(path.join(dir, "universe-v2.json"), "utf8")).instruments).toHaveLength(14);
   });
 });
