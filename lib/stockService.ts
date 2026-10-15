@@ -17,7 +17,7 @@ export class InputError extends Error {}
 
 export function validateSymbol(raw: unknown): string {
   const s = String(raw ?? "").trim().toUpperCase();
-  if (!SYMBOL_RE.test(s)) throw new InputError("Invalid symbol. Use an NSE ticker like RELIANCE.NS, a BSE scrip like 500325.BO, or an index like ^NSEI.");
+  if (!SYMBOL_RE.test(s)) throw new InputError("Invalid symbol. Use an NSE ticker like RELIANCE.NS, a BSE ticker like RELIANCE.BO, or an index like ^NSEI.");
   return s;
 }
 

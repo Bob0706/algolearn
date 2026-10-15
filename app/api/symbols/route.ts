@@ -22,7 +22,11 @@ export async function GET(req: NextRequest) {
       counts: u.counts,
       complete: u.complete,
       updatedAt: u.updatedAt,
-      note: u.complete ? undefined : "The full NSE/BSE company list could not be downloaded yet, so only a built-in list of large caps is searchable.",
+      note: u.complete ? undefined
+        : !u.updatedAt ? "The NSE/BSE company lists could not be downloaded yet, so only a built-in list of large caps is searchable."
+        : !u.counts.bse ? "BSE's company list could not be downloaded right now, so only NSE companies are searchable. It is retried automatically."
+        : "NSE's company list could not be downloaded right now, so only BSE companies are searchable. It is retried automatically.",
+      errors: u.errors,
     });
   } catch (err) {
     return errorResponse(err);

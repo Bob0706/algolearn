@@ -38,7 +38,7 @@ export const INDICES: Instrument[] = [
 export interface Universe {
   instruments: Instrument[];
   updatedAt: string | null;
-  complete: boolean;      // false = built-in fallback list only
+  complete: boolean;      // false = at least one exchange's list is missing
   counts: { nse: number; nseSme: number; bse: number };
   errors: string[];
 }
@@ -109,9 +109,10 @@ export function parseBseList(json: unknown): Instrument[] {
     const code = get(o, "scrip_cd", "scripcode", "scrip_code");
     const status = get(o, "status");
     if (!/^\d{5,6}$/.test(code) || (status && status.toLowerCase() !== "active")) continue;
-    const id = get(o, "scrip_id", "scripid");
+    const id = get(o, "scrip_id", "scripid").toUpperCase();
     out.push({
-      symbol: `${code}.BO`,
+      // Price feeds (Yahoo) know BSE stocks by the text ticker, e.g. RELIANCE.BO, not 500325.BO
+      symbol: bseTicker(id, code),
       exchange: "BSE",
       code,
       name: titleCase(get(o, "issuer_name", "scrip_name", "scripname") || id || code),
@@ -119,6 +120,44 @@ export function parseBseList(json: unknown): Instrument[] {
       series: get(o, "group") || undefined,
       industry: get(o, "industry") || undefined,
       alias: id || undefined,
+    });
+  }
+  return out;
+}
+
+const bseTicker = (id: string, code: string) => (/^[A-Z0-9&\-]{1,20}$/.test(id) ? `${id}.BO` : `${code}.BO`);
+
+/** Equity-share ISINs have security type "01" (e.g. INE002A01018); skips bonds and other debt. */
+const isEquityIsin = (isin: string) => /^IN[A-Z0-9]{4}[A-Z0-9]01[A-Z0-9]{3}$/.test(isin);
+
+/**
+ * Upstox's public instrument master (https://assets.upstox.com/market-quote/instruments/exchange/<EX>.json.gz):
+ * an array of { segment, name, isin, instrument_type, exchange_token, trading_symbol }. Used as a
+ * backup when an exchange's own list can't be downloaded.
+ */
+export function parseUpstoxInstruments(json: unknown, exchange: "NSE" | "BSE"): Instrument[] {
+  const arr: any[] = Array.isArray(json) ? json : [];
+  const out: Instrument[] = [];
+  const seen = new Set<string>();
+  for (const o of arr) {
+    if (o?.segment !== `${exchange}_EQ`) continue;
+    const isin = String(o.isin ?? "");
+    const sym = String(o.trading_symbol ?? "").toUpperCase();
+    const token = String(o.exchange_token ?? "");
+    if (!isEquityIsin(isin) || !/^[A-Z0-9&\-]{1,20}$/.test(sym)) continue;
+    if (exchange === "BSE" && !/^\d{5,6}$/.test(token)) continue;
+    const symbol = exchange === "NSE" ? `${sym}.NS` : bseTicker(sym, token);
+    if (seen.has(symbol)) continue;
+    seen.add(symbol);
+    out.push({
+      symbol,
+      exchange,
+      code: exchange === "NSE" ? sym : token,
+      name: titleCase(String(o.name ?? sym)),
+      isin,
+      series: o.instrument_type ? String(o.instrument_type) : undefined,
+      alias: exchange === "BSE" ? sym : undefined,
+      sme: exchange === "NSE" && o.instrument_type === "SM" ? true : undefined,
     });
   }
   return out;
@@ -154,6 +193,15 @@ export function buildUniverse(nse: Instrument[], sme: Instrument[], bse: Instrum
   };
 }
 
+const UPSTOX_MASTER = (ex: "NSE" | "BSE") => `https://assets.upstox.com/market-quote/instruments/exchange/${ex}.json.gz`;
+
+async function fetchUpstoxMaster(ex: "NSE" | "BSE"): Promise<Instrument[]> {
+  const res = await fetch(UPSTOX_MASTER(ex), { headers: BROWSER_HEADERS, signal: AbortSignal.timeout(30_000), cache: "no-store" });
+  if (!res.ok) throw new Error(`assets.upstox.com answered ${res.status}`);
+  const { gunzipSync } = await import("node:zlib");
+  return parseUpstoxInstruments(JSON.parse(gunzipSync(Buffer.from(await res.arrayBuffer())).toString("utf8")), ex);
+}
+
 async function fetchText(url: string, headers: Record<string, string> = {}): Promise<string> {
   const res = await fetch(url, { headers: { ...BROWSER_HEADERS, ...headers }, signal: AbortSignal.timeout(20_000), cache: "no-store" });
   if (!res.ok) throw new Error(`${new URL(url).host} answered ${res.status}`);
@@ -166,11 +214,18 @@ export async function downloadUniverse(): Promise<Universe> {
   const attempt = async <T>(label: string, fn: () => Promise<T[]>): Promise<T[]> => {
     try { return await fn(); } catch (e: any) { errors.push(`${label}: ${e?.message || e}`); return []; }
   };
-  const [nse, sme, bse] = await Promise.all([
+  let [nse, sme, bse] = await Promise.all([
     attempt("NSE main board", async () => parseNseList(await fetchText(NSE_URL))),
     attempt("NSE SME", async () => parseNseList(await fetchText(NSE_SME_URL), true)),
     attempt("BSE", async () => parseBseList(JSON.parse(await fetchText(BSE_URL, { Referer: "https://www.bseindia.com/", Origin: "https://www.bseindia.com" })))),
   ]);
+  // Backup source when an exchange blocks the request (common from cloud servers)
+  if (!bse.length) bse = await attempt("BSE via Upstox instrument list", () => fetchUpstoxMaster("BSE"));
+  if (!nse.length) {
+    const all = await attempt("NSE via Upstox instrument list", () => fetchUpstoxMaster("NSE"));
+    nse = all.filter(i => !i.sme);
+    if (!sme.length) sme = all.filter(i => i.sme);
+  }
   return buildUniverse(nse, sme, bse, errors);
 }
 
