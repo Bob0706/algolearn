@@ -1,6 +1,7 @@
 #!/bin/bash
 # AlgoLearn ledger node: single-validator Hyperledger Besu (QBFT) behind HTTPS (Caddy + sslip.io).
-# Runs on a fresh Ubuntu VM (Oracle Cloud Always Free: Ampere A1 or E2.1.Micro). Safe to re-run.
+# Runs on a fresh Ubuntu VM: Google Cloud free-tier e2-micro (as a startup script, which re-runs on
+# every boot) or Oracle Cloud Always Free (as cloud-init). Safe to re-run: the chain is created once.
 #
 #   SIGNER_ADDRESS   0x… address of the web app's ledger signer (the only account allowed to transact)
 #   HOST_OVERRIDE    optional hostname instead of <public-ip>.sslip.io
@@ -70,11 +71,14 @@ chmod 600 config/node.key
 
 # 5. Besu (JSON-RPC stays on the private Docker network; only Caddy is public)
 MEM_MB=$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo)
-HEAP=$(( MEM_MB > 4000 ? 2048 : 640 ))
+# heap by machine size: 1 GB free-tier VMs (GCP e2-micro, OCI E2.1.Micro) get a small, serial-GC heap
+if [ "$MEM_MB" -gt 4000 ]; then BESU_OPTS="-Xmx2048m"
+elif [ "$MEM_MB" -gt 1500 ]; then BESU_OPTS="-Xmx640m"
+else BESU_OPTS="-Xmx320m -XX:MaxMetaspaceSize=128m -XX:+UseSerialGC"; fi
 docker network create algolearn 2>/dev/null || true
 docker rm -f besu 2>/dev/null || true
 docker run -d --name besu --restart unless-stopped --network algolearn \
-  -e BESU_OPTS="-Xmx${HEAP}m" \
+  -e BESU_OPTS="$BESU_OPTS" \
   -v "$DIR/config":/config:ro -v "$DIR/data":/data -v "$DIR/permissions":/permissions \
   "$BESU_IMAGE" \
   --genesis-file=/config/genesis.json --node-private-key-file=/config/node.key --data-path=/data \
