@@ -12,11 +12,12 @@
 // Only the SHA-256 of the canonical content goes on-chain; the content itself is
 // kept in the off-chain store so it can be re-hashed and compared at any time.
 
-import { Contract, JsonRpcProvider, NonceManager, Wallet } from "ethers";
+import { Contract, JsonRpcProvider, Wallet } from "ethers";
 import artifact from "./AlgoLedger.json";
 import { hashJson, ZERO_HASH } from "./canonical";
 import { appendChainLocked, ChainEntry, getRecord, putRecord, readChain, storeBackend, StoredRecord } from "./store";
 import { LedgerKind, LedgerMode, LedgerReceipt } from "../types";
+import { redisEnabled, withRedisLock } from "../server/redis";
 
 export const KIND_CODES: Record<LedgerKind, number> = {
   STRATEGY: 0,
@@ -35,7 +36,7 @@ export function ledgerMode(): LedgerMode {
 }
 
 // ─── Besu connection (singleton across hot reloads) ─────────────────────────
-interface BesuConn { contract: Contract; readOnly: Contract; chainId?: number }
+interface BesuConn { contract: Contract; readOnly: Contract; wallet: Wallet; provider: JsonRpcProvider }
 const g = globalThis as any;
 
 function besu(): BesuConn {
@@ -45,15 +46,27 @@ function besu(): BesuConn {
     throw new Error("LEDGER_MODE=besu needs LEDGER_RPC_URL, LEDGER_PRIVATE_KEY and LEDGER_CONTRACT_ADDRESS");
   }
   const provider = new JsonRpcProvider(LEDGER_RPC_URL, undefined, { staticNetwork: true, polling: true, pollingInterval: 500 });
-  const signer = new NonceManager(new Wallet(LEDGER_PRIVATE_KEY, provider));
+  const wallet = new Wallet(LEDGER_PRIVATE_KEY, provider);
   g.__algolearnBesu = {
-    contract: new Contract(LEDGER_CONTRACT_ADDRESS, artifact.abi, signer),
+    contract: new Contract(LEDGER_CONTRACT_ADDRESS, artifact.abi, wallet),
     readOnly: new Contract(LEDGER_CONTRACT_ADDRESS, artifact.abi, provider),
+    wallet,
+    provider,
   };
   return g.__algolearnBesu;
 }
 
-/** All chain writes go through one queue so nonces and the local chain stay ordered. */
+/**
+ * Sends one transaction with a nonce read fresh from the node. On serverless hosts many instances
+ * share the signer, so the read-and-send runs under a Redis lock; a cached per-instance nonce
+ * would collide.
+ */
+async function sendWithFreshNonce<T>(conn: BesuConn, send: (nonce: number) => Promise<T>): Promise<T> {
+  const run = async () => send(await conn.provider.getTransactionCount(conn.wallet.address, "pending"));
+  return redisEnabled() ? withRedisLock("ledger:besu-signer", run) : run();
+}
+
+/** All chain writes from this instance go through one queue so they stay ordered. */
 function enqueue<T>(job: () => Promise<T>): Promise<T> {
   const run = (g.__algolearnLedgerQueue ?? Promise.resolve()).then(job, job);
   g.__algolearnLedgerQueue = run.catch(() => undefined);
@@ -98,7 +111,8 @@ async function submit(rec: StoredRecord): Promise<LedgerReceipt> {
       // Only link the parent on-chain if it actually made it there (the contract rejects unknown parents).
       let parent = ZERO_HASH;
       if (rec.parentId && (await readOnly.exists(rec.parentId))) parent = rec.parentId;
-      const tx = await contract.record(rec.id, KIND_CODES[rec.kind], rec.contentHash, rec.subject, parent, { gasPrice: 0 });
+      const tx = await sendWithFreshNonce(conn, nonce =>
+        contract.record(rec.id, KIND_CODES[rec.kind], rec.contentHash, rec.subject, parent, { gasPrice: 0, nonce }));
       const receipt = await Promise.race([
         tx.wait(1),
         new Promise<null>(r => setTimeout(() => r(null), CONFIRM_TIMEOUT_MS)),
@@ -106,7 +120,6 @@ async function submit(rec: StoredRecord): Promise<LedgerReceipt> {
       if (!receipt) return { ...base, status: "pending" as const, txHash: tx.hash };
       return { ...base, status: "confirmed" as const, txHash: tx.hash, blockNumber: receipt.blockNumber };
     } catch (e: any) {
-      (conn?.contract.runner as NonceManager | null)?.reset?.();
       return { ...base, status: "failed" as const, error: e?.shortMessage || e?.message || String(e) };
     }
   });
@@ -129,7 +142,7 @@ export async function recordOnLedger(kind: LedgerKind, content: unknown, opts: R
 
   try {
     const existing = await getRecord(id);
-    if (existing && existing.receipt.status === "confirmed") return existing.receipt;
+    if (existing && existing.receipt.status === "confirmed" && existing.receipt.mode === mode) return existing.receipt;
 
     const rec: StoredRecord = existing ?? {
       id, kind, subject, parentId: opts.parentId ?? null, contentHash, content,
@@ -215,8 +228,10 @@ async function readOnChain(id: string, mode: LedgerMode): Promise<VerifyResult["
 export async function verifyRecord(id: string, content?: unknown): Promise<VerifyResult> {
   const mode = ledgerMode();
   const rec = await getRecord(id);
-  if (rec && rec.receipt.status !== "confirmed" && mode !== "off") {
-    rec.receipt = await submit(rec); // retry records that did not reach the chain earlier
+  if (rec && mode !== "off" && (rec.receipt.status !== "confirmed" || rec.receipt.mode !== mode)) {
+    // retry records that did not reach the ledger, and re-anchor records written under another
+    // ledger mode (e.g. local hash chain → Besu after the operator switches LEDGER_MODE)
+    rec.receipt = await submit(rec);
     await putRecord(rec, false);
   }
 

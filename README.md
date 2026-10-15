@@ -146,6 +146,23 @@ Vercel hosts the website and API. Two parts can't run on Vercel and live elsewhe
 
 If NSE/BSE block Vercel's servers from downloading the company list, load it from your own computer into the same Redis: `KV_REST_API_URL=… KV_REST_API_TOKEN=… npm run symbols:sync`.
 
+## Hyperledger Besu node (free cloud VM)
+
+The live site's ledger runs on a single-validator Besu QBFT node on a free-tier VM: a Google Cloud `e2-micro` (1 GB RAM, standard persistent disk ≤ 30 GB, in us-east1/us-central1/us-west1), or an Oracle Cloud Always Free instance. `blockchain/vm/setup-besu.sh` sets it up on a fresh Ubuntu machine:
+- **Machine:** swap on small machines, Docker, and ports 80/443 opened in the host firewall where one exists.
+- **Chain:** generates the genesis and validator key **on the machine itself**. Empty blocks are produced only every 5 minutes, and transactions are mined within ~2 seconds.
+- **Memory:** sizes Besu's heap to the machine. On 1 GB it uses about 300 MB in testing.
+- **Access:** account permissioning, so only `SIGNER_ADDRESS` can transact. Only the `ETH`, `NET` and `WEB3` APIs are enabled, and no ports are published.
+- **HTTPS:** Caddy in front at `https://<public-ip-with-dashes>.sslip.io` with an automatic Let's Encrypt certificate. Only JSON-RPC POSTs (max 64 KB) and `/liveness` pass through.
+
+Setup on Google Cloud:
+1. Create an `e2-micro` VM: Ubuntu 24.04 LTS (x86/64), *Standard persistent disk* 30 GB, *Allow HTTP* and *Allow HTTPS traffic* ticked.
+2. Paste the script as its **Startup script** (Advanced options → Management → Automation), with `export SIGNER_ADDRESS=0x…` added after the first line. It re-runs on every boot; the chain is only created once.
+3. Once `https://<ip>.sslip.io/liveness` returns `{"status":"UP"}`, deploy the contract with the signer key: `LEDGER_RPC_URL=https://<ip>.sslip.io LEDGER_PRIVATE_KEY=0x… npm run ledger:deploy`.
+4. In Vercel, set `LEDGER_MODE=besu`, `LEDGER_RPC_URL`, `LEDGER_CONTRACT_ADDRESS` and `LEDGER_PRIVATE_KEY`, then redeploy.
+
+Keep the VM running rather than stopped: an ephemeral public IP can change after a stop/start, and with it the hostname. Records created under the earlier local ledger are re-anchored on Besu the first time they're verified. Writes from many serverless instances share the signer through a Redis lock with a fresh nonce per transaction.
+
 ## Tests
 
 ```bash
