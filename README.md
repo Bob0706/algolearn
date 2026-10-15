@@ -146,6 +146,22 @@ Vercel hosts the website and API. Two parts can't run on Vercel and live elsewhe
 
 If NSE/BSE block Vercel's servers from downloading the company list, load it from your own computer into the same Redis: `KV_REST_API_URL=… KV_REST_API_TOKEN=… npm run symbols:sync`.
 
+## Hyperledger Besu node on Oracle Cloud (free)
+
+The live site's ledger runs on a single-validator Besu QBFT node on an Oracle Cloud **Always Free** VM. `blockchain/oracle/setup-besu.sh` sets it up on a fresh Ubuntu machine:
+- **Machine:** swap if needed, Docker, and opens ports 80/443 in the host firewall.
+- **Chain:** generates the genesis and validator key **on the machine itself**. Empty blocks are produced only every 5 minutes, so the disk stays small, and transactions are mined within ~2 seconds.
+- **Access:** runs Besu with account permissioning, so only `SIGNER_ADDRESS` can transact. Only the `ETH`, `NET` and `WEB3` APIs are enabled, and no ports are published.
+- **HTTPS:** puts Caddy in front at `https://<public-ip-with-dashes>.sslip.io` with an automatic Let's Encrypt certificate. Only JSON-RPC POSTs (max 64 KB) and `/liveness` pass through.
+
+Setup:
+1. Create an Ubuntu instance (shape `VM.Standard.A1.Flex` 1 OCPU / 6 GB, or `VM.Standard.E2.1.Micro`). Paste the script as the instance's cloud-init, with `export SIGNER_ADDRESS=0x…` added after the first line.
+2. In the instance's subnet → Security List, add ingress rules for TCP 80 and 443 from `0.0.0.0/0`.
+3. Once `https://<ip>.sslip.io/liveness` returns `{"status":"UP"}`, deploy the contract with the signer key: `LEDGER_RPC_URL=https://<ip>.sslip.io LEDGER_PRIVATE_KEY=0x… npm run ledger:deploy`.
+4. In Vercel, set `LEDGER_MODE=besu`, `LEDGER_RPC_URL`, `LEDGER_CONTRACT_ADDRESS` and `LEDGER_PRIVATE_KEY`, then redeploy.
+
+Records created under the earlier local ledger are re-anchored on Besu the first time they're verified. Writes from many serverless instances share the signer through a Redis lock with a fresh nonce per transaction.
+
 ## Tests
 
 ```bash
