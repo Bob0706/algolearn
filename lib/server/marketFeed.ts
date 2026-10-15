@@ -51,11 +51,14 @@ async function yahooChart(symbol: string, range: string, interval: string): Prom
     try {
       const url = `https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false`;
       const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" }, signal: AbortSignal.timeout(8000), cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      const chart = res.ok ? parseYahooChart(json) : null;
+      if (chart) return chart;
+      console.warn(`[marketFeed] Yahoo ${host} ${symbol} range=${range} interval=${interval}: HTTP ${res.status}`,
+        JSON.stringify(json?.chart?.error ?? json)?.slice(0, 300));
       if (res.status === 404) return null;
-      if (!res.ok) continue;
-      return parseYahooChart(await res.json());
-    } catch {
-      /* try next host */
+    } catch (e: any) {
+      console.warn(`[marketFeed] Yahoo ${host} ${symbol} failed: ${e?.message ?? e}`);
     }
   }
   return null;
@@ -264,6 +267,11 @@ export async function getDailyBars(symbol: string, period: string): Promise<{ ba
     }
     const c = await yahooChart(symbol, period, "1d");
     const bars = c ? yahooDailyBars(c) : [];
+    if (c && bars.length < 20) {
+      const nulls = (k: keyof YahooChart["quote"]) => c.quote[k]?.filter(v => v == null).length ?? "missing";
+      console.warn(`[marketFeed] Yahoo ${symbol} ${period} daily: ${c.timestamp.length} rows, ${bars.length} usable`,
+        `(null open ${nulls("open")}, high ${nulls("high")}, low ${nulls("low")}, close ${nulls("close")})`);
+    }
     return bars.length >= 20 ? { bars, source: "yahoo" as const } : null;
   });
 }

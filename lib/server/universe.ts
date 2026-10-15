@@ -185,6 +185,12 @@ export function buildUniverse(nse: Instrument[], sme: Instrument[], bse: Instrum
   // carry NSE industry over from the BSE listing of the same ISIN
   const industryByIsin = new Map(bse.filter(b => b.isin && b.industry).map(b => [b.isin!, b.industry!]));
   for (const i of [...nse, ...sme]) if (i.isin && !i.industry) i.industry = industryByIsin.get(i.isin);
+  // backup BSE lists carry truncated upper-case names; prefer NSE's full name for the same company
+  const nameByIsin = new Map([...nse, ...sme].filter(i => i.isin).map(i => [i.isin!, i.name]));
+  for (const b of bse) {
+    const better = b.isin ? nameByIsin.get(b.isin) : undefined;
+    if (better && b.name === b.name.toUpperCase()) b.name = better;
+  }
   return {
     instruments: [...INDICES, ...nse, ...sme, ...bse],
     updatedAt: new Date().toISOString(),

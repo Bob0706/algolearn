@@ -42,6 +42,9 @@ describe("exchange company lists", () => {
       { symbol: "RELIANCE.BO", exchange: "BSE", code: "500325", name: "RELIANCE INDUSTRIES LTD.", isin: "INE002A01018", series: "A", alias: "RELIANCE", sme: undefined },
     ]);
     expect(parseUpstoxInstruments(master, "NSE").map(i => [i.symbol, i.sme])).toEqual([["TATAMOTORS.NS", undefined], ["SIGMA.NS", true]]);
+    // merged with the NSE list, the BSE listing takes NSE's full company name
+    const merged = buildUniverse(nse, [], parseUpstoxInstruments(master, "BSE"));
+    expect(merged.instruments.find(i => i.symbol === "RELIANCE.BO")?.name).toBe("Reliance Industries Limited");
   });
 
   it("merges into one universe with indices and shares industry by ISIN", () => {
