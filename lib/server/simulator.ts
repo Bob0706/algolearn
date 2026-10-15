@@ -40,6 +40,7 @@ interface Session {
   symbol: string;
   period: string;
   source: DataSource;
+  note?: string;
   dataHash: string;
   bars: OHLCVBar[];
   signals: CandleSignal[];
@@ -104,6 +105,7 @@ function view(s: Session, fromIndex = 0) {
     symbol: s.symbol,
     period: s.period,
     dataSource: s.source,
+    note: s.note,
     totalBars: s.bars.length,
     cursor: s.cursor,
     bars: visible,
@@ -152,6 +154,7 @@ export async function startSession(caller: Caller, symbol: unknown, period: unkn
     symbol: market.symbol,
     period: market.period,
     source: market.source,
+    note: market.note,
     dataHash: market.dataHash,
     bars: market.bars,
     signals,

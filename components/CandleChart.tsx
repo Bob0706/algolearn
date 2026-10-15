@@ -71,8 +71,9 @@ export default function CandleChart({ bars, markers = [], height = 340, follow =
       if (!lineSeries.current) lineSeries.current = chart.current.addSeries(LineSeries, { color: line.color, lineWidth: 1, priceLineVisible: false });
       lineSeries.current.setData(line.data.map(p => ({ time: p.date as Time, value: p.value })));
     }
-    if (follow) chart.current?.timeScale().scrollToRealTime();
-    else if (!fitted.current && bars.length) { chart.current?.timeScale().fitContent(); fitted.current = true; }
+    // first load: show every bar edge to edge; afterwards keep the newest bar in view when following
+    if (!fitted.current && bars.length) { chart.current?.timeScale().fitContent(); fitted.current = true; }
+    else if (follow) chart.current?.timeScale().scrollToRealTime();
   }, [bars, markers, follow, line]);
 
   return <div ref={box} style={{ width: "100%", height }} />;

@@ -26,7 +26,7 @@ Learn algorithmic trading on Indian markets:
 
 | What | Source |
 |---|---|
-| **Company list** | The exchanges' own published lists: NSE [`EQUITY_L.csv`](https://archives.nseindia.com/content/equities/EQUITY_L.csv), NSE SME [`SME_EQUITY_L.csv`](https://archives.nseindia.com/emerge/corporates/content/SME_EQUITY_L.csv), and BSE's active equity scrip list. They are downloaded on first use, cached in `.market-data/universe.json`, and refreshed daily. |
+| **Company list** | The exchanges' own published lists: NSE [`EQUITY_L.csv`](https://archives.nseindia.com/content/equities/EQUITY_L.csv), NSE SME [`SME_EQUITY_L.csv`](https://archives.nseindia.com/emerge/corporates/content/SME_EQUITY_L.csv), and BSE's active equity scrip list. They are downloaded on first use, cached in `.market-data/universe-v2.json`, and refreshed daily. |
 | **Prices** (`MARKET_DATA_PROVIDER`) | `yahoo` (default): live quotes, 1m/5m/15m intraday candles and up to 5 years of daily history for every `.NS`/`.BO` listing and the main indices. Free, but quotes can lag the exchange by a few minutes. `upstox`: the exchange-licensed NSE/BSE feed through the Upstox API, best for genuine real-time. It needs a free Upstox account; set `UPSTOX_ACCESS_TOKEN` (tokens expire daily) and anything it can't serve falls back to Yahoo. |
 | **Fake prices** | **Off.** If real data can't be fetched, the API returns a clear "data unavailable" error. `ALLOW_SYNTHETIC_DATA=true` re-enables a labelled random-walk fallback for offline development only. |
 

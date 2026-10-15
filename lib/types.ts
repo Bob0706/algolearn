@@ -18,6 +18,8 @@ export interface MarketData {
   source: DataSource;
   bars: OHLCVBar[];
   dataHash: string;
+  /** Set when the data differs from what was asked for (e.g. NSE history used for a BSE listing). */
+  note?: string;
 }
 
 export interface SignalPoint { date: string; price: number }
@@ -87,7 +89,7 @@ export interface StockSymbol { symbol: string; name: string; sector: string }
 
 export type Exchange = "NSE" | "BSE" | "INDEX";
 
-/** One tradable listing. `symbol` is the app-wide ticker: RELIANCE.NS, 500325.BO, ^NSEI. */
+/** One tradable listing. `symbol` is the app-wide ticker: RELIANCE.NS, RELIANCE.BO, ^NSEI. */
 export interface Instrument {
   symbol: string;
   exchange: Exchange;

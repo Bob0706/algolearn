@@ -1,4 +1,4 @@
-// Downloads (or imports) the full NSE + BSE company lists into MARKET_DATA_DIR/universe.json.
+// Downloads (or imports) the full NSE + BSE company lists into MARKET_DATA_DIR/universe-v2.json.
 //
 //   npm run symbols:sync                                   # download from NSE/BSE
 //   npm run symbols:sync -- --nse EQUITY_L.csv --sme SME_EQUITY_L.csv --bse bse.json
@@ -32,7 +32,7 @@ async function main() {
   saveUniverse(u);
   if (redisEnabled()) {
     // seeds a deployed (e.g. Vercel) app whose own servers cannot reach NSE/BSE
-    await redis(["SET", "universe:v1", JSON.stringify(u), "EX", 3 * 24 * 3600]);
+    await redis(["SET", "universe:v2", JSON.stringify(u), "EX", 3 * 24 * 3600]);
     console.log("Also stored in Redis for the deployed app.");
   }
   console.log(`Saved ${listed.toLocaleString()} listings: NSE ${u.counts.nse}, NSE SME ${u.counts.nseSme}, BSE ${u.counts.bse}${u.complete ? "" : " (incomplete)"}`);

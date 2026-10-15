@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildUniverse, parseBseList, parseCsv, parseNseList, searchInstruments } from "@/lib/server/universe";
+import { buildUniverse, parseBseList, parseCsv, parseNseList, parseUpstoxInstruments, searchInstruments } from "@/lib/server/universe";
 import { parseUpstoxCandles, parseUpstoxQuote, parseYahooChart, yahooDailyBars, yahooIntradayBars, yahooQuote } from "@/lib/server/marketFeed";
 import { validateSymbol } from "@/lib/stockService";
 
@@ -25,9 +25,26 @@ describe("exchange company lists", () => {
     expect(sme).toEqual([expect.objectContaining({ symbol: "SIGMA.NS", sme: true, series: "SM", isin: "INE0LLO01016" })]);
   });
 
-  it("parses BSE scrips, keeps only active ones, uses the scrip code ticker", () => {
-    expect(bse.map(i => i.symbol)).toEqual(["500325.BO", "500570.BO", "543287.BO"]);
-    expect(bse[0]).toMatchObject({ alias: "RELIANCE", series: "A", industry: "Refineries & Marketing" });
+  it("parses BSE scrips, keeps only active ones, uses the text ticker price feeds know", () => {
+    expect(bse.map(i => i.symbol)).toEqual(["RELIANCE.BO", "TATAMOTORS.BO", "SMALLBSE.BO"]);
+    expect(bse[0]).toMatchObject({ code: "500325", alias: "RELIANCE", series: "A", industry: "Refineries & Marketing" });
+  });
+
+  it("parses the Upstox instrument master as a backup list (equity only)", () => {
+    const master = [
+      { segment: "BSE_EQ", name: "RELIANCE INDUSTRIES LTD.", isin: "INE002A01018", instrument_type: "A", exchange_token: "500325", trading_symbol: "RELIANCE" },
+      { segment: "BSE_EQ", name: "SOME BOND 8.5% 2030", isin: "INE002A08534", instrument_type: "F", exchange_token: "959999", trading_symbol: "85RIL30" },
+      { segment: "BSE_FO", name: "RELIANCE FUT", isin: "", instrument_type: "FUT", exchange_token: "1", trading_symbol: "RELIANCE FUT" },
+      { segment: "NSE_EQ", name: "TATA MOTORS LIMITED", isin: "INE155A01022", instrument_type: "EQ", exchange_token: "3456", trading_symbol: "TATAMOTORS" },
+      { segment: "NSE_EQ", name: "SIGMA SOLVE LIMITED", isin: "INE0LLO01016", instrument_type: "SM", exchange_token: "1234", trading_symbol: "SIGMA" },
+    ];
+    expect(parseUpstoxInstruments(master, "BSE")).toEqual([
+      { symbol: "RELIANCE.BO", exchange: "BSE", code: "500325", name: "RELIANCE INDUSTRIES LTD.", isin: "INE002A01018", series: "A", alias: "RELIANCE", sme: undefined },
+    ]);
+    expect(parseUpstoxInstruments(master, "NSE").map(i => [i.symbol, i.sme])).toEqual([["TATAMOTORS.NS", undefined], ["SIGMA.NS", true]]);
+    // merged with the NSE list, the BSE listing takes NSE's full company name
+    const merged = buildUniverse(nse, [], parseUpstoxInstruments(master, "BSE"));
+    expect(merged.instruments.find(i => i.symbol === "RELIANCE.BO")?.name).toBe("Reliance Industries Limited");
   });
 
   it("merges into one universe with indices and shares industry by ISIN", () => {
@@ -40,15 +57,15 @@ describe("exchange company lists", () => {
 
 describe("symbol search", () => {
   const syms = (q: string, ex?: string) => searchInstruments(u, q, { exchange: ex }).map(i => i.symbol);
-  it("ranks exact ticker first and prefers NSE", () => expect(syms("reliance").slice(0, 2)).toEqual(["RELIANCE.NS", "500325.BO"]));
-  it("finds by BSE scrip code", () => expect(syms("500570")[0]).toBe("500570.BO"));
+  it("ranks exact ticker first and prefers NSE", () => expect(syms("reliance").slice(0, 2)).toEqual(["RELIANCE.NS", "RELIANCE.BO"]));
+  it("finds by BSE scrip code", () => expect(syms("500570")[0]).toBe("TATAMOTORS.BO"));
   it("finds by words of the company name", () => expect(syms("tata mot")[0]).toBe("TATAMOTORS.NS"));
   it("finds by ISIN", () => expect(syms("INE002A01018")).toContain("RELIANCE.NS"));
   it("finds BSE-only and SME companies", () => {
-    expect(syms("small bse")).toEqual(["543287.BO"]);
+    expect(syms("small bse")).toEqual(["SMALLBSE.BO"]);
     expect(syms("sigma")).toEqual(["SIGMA.NS"]);
   });
-  it("filters by exchange", () => expect(syms("reliance", "BSE")).toEqual(["500325.BO"]));
+  it("filters by exchange", () => expect(syms("reliance", "BSE")).toEqual(["RELIANCE.BO"]));
 });
 
 describe("symbol validation", () => {
@@ -106,6 +123,6 @@ describe("npm run symbols:sync (offline import)", () => {
     const out = execFileSync("npx", ["tsx", "scripts/sync-symbols.ts", "--nse", "tests/fixtures/EQUITY_L.csv", "--sme", "tests/fixtures/SME_EQUITY_L.csv", "--bse", "tests/fixtures/bse.json"],
       { env: { ...process.env, MARKET_DATA_DIR: dir }, encoding: "utf8" });
     expect(out).toMatch(/Saved 9 listings: NSE 5, NSE SME 1, BSE 3/);
-    expect(JSON.parse(fs.readFileSync(path.join(dir, "universe.json"), "utf8")).instruments).toHaveLength(14);
+    expect(JSON.parse(fs.readFileSync(path.join(dir, "universe-v2.json"), "utf8")).instruments).toHaveLength(14);
   });
 });

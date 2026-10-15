@@ -231,6 +231,7 @@ export default function SimulatorPage() {
 
         <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
           <DataSourceBanner source={view.dataSource} />
+          {view.note && <div className="alert alert-info small"><AlertCircle size={14} style={{ flexShrink: 0 }} /> {view.note}</div>}
 
           {recent ? (
             <div className={`verdict ${recent.type === "BUY" ? "verdict-ok" : "verdict-bad"}`}>

@@ -46,16 +46,21 @@ export function parseYahooChart(json: any): YahooChart | null {
   return { meta: r.meta, timestamp: r.timestamp, quote: q };
 }
 
-async function yahooChart(symbol: string, range: string, interval: string): Promise<YahooChart | null> {
+/** `range` is a Yahoo range like "1y", or an explicit [fromEpoch, toEpoch] window. */
+async function yahooChart(symbol: string, range: string | [number, number], interval: string): Promise<YahooChart | null> {
+  const span = Array.isArray(range) ? `period1=${range[0]}&period2=${range[1]}` : `range=${range}`;
   for (const host of ["query1", "query2"]) {
     try {
-      const url = `https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false`;
+      const url = `https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?${span}&interval=${interval}&includePrePost=false`;
       const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" }, signal: AbortSignal.timeout(8000), cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      const chart = res.ok ? parseYahooChart(json) : null;
+      if (chart) return chart;
+        console.warn(`[marketFeed] Yahoo ${host} ${symbol} ${span} interval=${interval}: HTTP ${res.status}`,
+        JSON.stringify(json?.chart?.error ?? json)?.slice(0, 300));
       if (res.status === 404) return null;
-      if (!res.ok) continue;
-      return parseYahooChart(await res.json());
-    } catch {
-      /* try next host */
+    } catch (e: any) {
+      console.warn(`[marketFeed] Yahoo ${host} ${symbol} failed: ${e?.message ?? e}`);
     }
   }
   return null;
@@ -262,8 +267,20 @@ export async function getDailyBars(symbol: string, period: string): Promise<{ ba
       const b = await upstoxDaily(symbol, period);
       if (b && b.length >= 20) return { bars: b, source: "upstox" as const };
     }
-    const c = await yahooChart(symbol, period, "1d");
-    const bars = c ? yahooDailyBars(c) : [];
+    let c = await yahooChart(symbol, period, "1d");
+    let bars = c ? yahooDailyBars(c) : [];
+    if (bars.length < 20) {
+      // Yahoo sometimes returns a single row for range= queries on BSE tickers; ask by explicit dates
+      const now = Math.floor(Date.now() / 1000);
+      const retry = await yahooChart(symbol, [now - (PERIOD_DAYS[period] ?? 366) * 86400, now], "1d");
+      const retryBars = retry ? yahooDailyBars(retry) : [];
+      if (retryBars.length > bars.length) { c = retry; bars = retryBars; }
+    }
+    if (c && bars.length < 20) {
+      const nulls = (k: keyof YahooChart["quote"]) => c.quote[k]?.filter(v => v == null).length ?? "missing";
+      console.warn(`[marketFeed] Yahoo ${symbol} ${period} daily: ${c.timestamp.length} rows, ${bars.length} usable`,
+        `(null open ${nulls("open")}, high ${nulls("high")}, low ${nulls("low")}, close ${nulls("close")})`);
+    }
     return bars.length >= 20 ? { bars, source: "yahoo" as const } : null;
   });
 }

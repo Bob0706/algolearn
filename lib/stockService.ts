@@ -7,6 +7,7 @@
 import { MarketData, OHLCVBar } from "./types";
 import { hashJson } from "./ledger/canonical";
 import { getDailyBars, MarketDataError } from "./server/marketFeed";
+import { findInstrument, getUniverse } from "./server/universe";
 
 export const PERIODS = ["1mo", "3mo", "6mo", "1y", "2y", "5y"] as const;
 export type Period = (typeof PERIODS)[number];
@@ -17,7 +18,7 @@ export class InputError extends Error {}
 
 export function validateSymbol(raw: unknown): string {
   const s = String(raw ?? "").trim().toUpperCase();
-  if (!SYMBOL_RE.test(s)) throw new InputError("Invalid symbol. Use an NSE ticker like RELIANCE.NS, a BSE scrip like 500325.BO, or an index like ^NSEI.");
+  if (!SYMBOL_RE.test(s)) throw new InputError("Invalid symbol. Use an NSE ticker like RELIANCE.NS, a BSE ticker like RELIANCE.BO, or an index like ^NSEI.");
   return s;
 }
 
@@ -44,8 +45,23 @@ export async function getMarketData(symbolRaw: unknown, periodRaw: unknown): Pro
   const real = await getDailyBars(symbol, period);
   if (real) return { symbol, period, source: real.source, bars: real.bars, dataHash: hashJson(real.bars) };
 
+  // The price feed lacks daily history for some BSE listings. The same share also trades on NSE at
+  // nearly the same price, so fall back to the NSE listing (matched by ISIN) and say so.
+  if (symbol.endsWith(".BO")) {
+    const u = await getUniverse();
+    const isin = findInstrument(u, symbol)?.isin;
+    const twin = isin ? u.instruments.find(i => i.exchange === "NSE" && i.isin === isin) : undefined;
+    const alt = twin ? await getDailyBars(twin.symbol, period) : null;
+    if (twin && alt) {
+      return {
+        symbol, period, source: alt.source, bars: alt.bars, dataHash: hashJson(alt.bars),
+        note: `Daily history for ${symbol} on BSE isn't available from the data provider, so this uses the same company's NSE listing (${twin.symbol}). Prices on the two exchanges stay within a few paise of each other.`,
+      };
+    }
+  }
+
   if (!allowSynthetic()) {
-    throw new MarketDataError(`Live market data for ${symbol} is unavailable right now (the data provider could not be reached or has no history for this stock). Please try again shortly.`);
+    throw new MarketDataError(`Price history for ${symbol} is unavailable right now: the data provider could not be reached or has no daily history for this listing. Try again shortly${symbol.endsWith(".BO") ? ", or pick the company's NSE listing" : ""}.`);
   }
   console.warn(`[stockService] real market data unavailable for ${symbol}; serving SYNTHETIC data (ALLOW_SYNTHETIC_DATA=true)`);
   const bars = generateSyntheticBars(symbol, period);
