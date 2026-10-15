@@ -18,6 +18,7 @@ import { recordOnLedger } from "../ledger";
 import { Caller } from "./auth";
 import { InputError } from "../stockService";
 import { redis, redisEnabled } from "./redis";
+import { recordSimulatorTotals } from "./userData";
 
 export const INITIAL_CAPITAL = 100_000;
 const WARMUP_BARS = 50;
@@ -37,6 +38,8 @@ export interface SimTrade {
 interface Session {
   id: string;
   subject: string;
+  userId: string | null;
+  loginSession: string | null; // the login that started this game; no other login can see or play it
   symbol: string;
   period: string;
   source: DataSource;
@@ -151,6 +154,8 @@ export async function startSession(caller: Caller, symbol: unknown, period: unkn
   const s: Session = {
     id: randomBytes(16).toString("hex"),
     subject: caller.subject,
+    userId: caller.uid,
+    loginSession: caller.sessionId,
     symbol: market.symbol,
     period: market.period,
     source: market.source,
@@ -175,7 +180,10 @@ export async function startSession(caller: Caller, symbol: unknown, period: unkn
 async function getOwned(id: unknown, caller: Caller): Promise<Session> {
   const s = await loadSession(String(id ?? ""));
   if (!s) throw new InputError("Simulation session not found or expired. Please start a new one.");
-  if (s.subject !== caller.subject) throw new InputError("This simulation belongs to a different user.");
+  // isolation: a game is only visible to the login session that started it
+  if (s.subject !== caller.subject || (s.loginSession ?? null) !== (caller.sessionId ?? null)) {
+    throw new InputError("Simulation session not found or expired. Please start a new one.");
+  }
   return s;
 }
 
@@ -267,4 +275,9 @@ async function finish(s: Session) {
     ...result,
   }, { subject: s.subject, parentId: s.signalBatch?.id, id: hashJson({ kind: "SIMULATION_RESULT", session: s.id }) });
   s.result = { ...result, ledger };
+  if (s.userId) {
+    await recordSimulatorTotals(s.userId, {
+      trades: s.trades.length, wins: result.wins, losses: result.losses, pnl: result.finalValue - INITIAL_CAPITAL,
+    }).catch(e => console.warn("[simulator] could not update user totals:", e?.message));
+  }
 }

@@ -1,14 +1,14 @@
 "use client";
 // app/backtest/page.tsx — run strategy code on historical NSE/BSE data
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, AlertTriangle, BarChart2, Cpu, IndianRupee, Info, Play, Settings, Target, TrendingDown, TrendingUp,
 } from "lucide-react";
-import { ApiError, fetchStrategyTemplates, runBacktest } from "@/lib/api";
+import { ApiError, fetchStrategyTemplates, runBacktest, saveMyStrategy } from "@/lib/api";
 import type { BacktestResult, StrategyTemplate } from "@/lib/types";
 import { useAuth } from "@/contexts/AuthContext";
-import { saveStrategy } from "@/lib/firebase";
 import { takeHandoff } from "@/lib/handoff";
 import CandleChart, { ChartMarker } from "@/components/CandleChart";
 import LedgerReceipts from "@/components/LedgerReceipts";
@@ -97,8 +97,14 @@ export default function BacktestPage() {
   const save = async () => {
     if (!user || !result) return;
     const bt = result.ledger?.find(r => r.kind === "BACKTEST");
-    await saveStrategy(user, { name: strategyName, description: "", code, symbol, backtestResult: { ...result.summary }, ledgerId: bt?.id });
-    setSaved(true);
+    setError(null);
+    try {
+      const metrics = Object.fromEntries(Object.entries(result.summary).filter(([, v]) => typeof v === "number")) as Record<string, number>;
+      await saveMyStrategy({ name: strategyName, description: "", code, symbol, backtestResult: metrics, ledgerId: bt?.id });
+      setSaved(true);
+    } catch (e) {
+      setError({ message: e instanceof Error ? e.message : "Could not save the strategy." });
+    }
   };
 
   const markers = useMemo<ChartMarker[]>(() => !result ? [] : [
@@ -260,7 +266,7 @@ export default function BacktestPage() {
                         {result.meta.lookahead.uses_future_data ? "Uses future data" : "No look-ahead detected"}
                       </span>
                     )}
-                    {user && <button className="btn btn-secondary btn-sm" style={{ marginLeft: "auto" }} onClick={save} disabled={saved}>{saved ? "Saved ✓" : "Save to dashboard"}</button>}
+                    {user ? <button className="btn btn-secondary btn-sm" style={{ marginLeft: "auto" }} onClick={save} disabled={saved}>{saved ? "Saved ✓" : "Save to dashboard"}</button> : <Link href="/login?next=/backtest" className="btn btn-ghost btn-sm" style={{ marginLeft: "auto" }}>Log in to save</Link>}
                   </div>
                   <ul className="small" style={{ color: "var(--text-secondary)", paddingLeft: "1.1rem" }}>
                     {result.meta.assumptions.map(a => <li key={a}>{a}</li>)}

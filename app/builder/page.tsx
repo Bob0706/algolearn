@@ -2,11 +2,11 @@
 // app/builder/page.tsx — plain English → Python strategy
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BookOpen, Check, Copy, Info, Lightbulb, PlayCircle, ShieldCheck, Zap, AlertTriangle } from "lucide-react";
-import { ApiError, fetchStrategyTemplates, generateStrategy, GeneratedStrategy, recordStrategy, StrategyTemplate } from "@/lib/api";
+import { ApiError, fetchStrategyTemplates, generateStrategy, GeneratedStrategy, recordStrategy, saveMyStrategy, StrategyTemplate } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
-import { saveStrategy } from "@/lib/firebase";
 import type { LedgerReceipt } from "@/lib/types";
 import LedgerReceipts from "@/components/LedgerReceipts";
 import { setHandoff } from "@/lib/handoff";
@@ -71,14 +71,10 @@ export default function BuilderPage() {
     if (!user || !code) return;
     setSaving(true); setError("");
     try {
-      let ledgerId: string | undefined;
-      if (!user.isDemo) {
-        const { receipt } = await recordStrategy(code);
-        setReceipt(receipt);
-        ledgerId = receipt?.id;
-      }
-      await saveStrategy(user, { name: description.slice(0, 60) || "My Strategy", description, code, ledgerId });
-      setSaved(user.isDemo ? "Saved in this browser (demo mode: ledger recording requires a signed-in account)." : "Saved to your dashboard.");
+      const { receipt } = await recordStrategy(code);
+      setReceipt(receipt);
+      await saveMyStrategy({ name: description.slice(0, 60) || "My Strategy", description, code, ledgerId: receipt?.id });
+      setSaved("Saved to your dashboard.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save the strategy.");
     } finally {
@@ -175,7 +171,7 @@ export default function BuilderPage() {
                 {code && (
                   <div style={{ display: "flex", gap: "0.4rem" }}>
                     <button className="btn btn-ghost btn-sm" onClick={copy}>{copied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy</>}</button>
-                    {user && <button className="btn btn-secondary btn-sm" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</button>}
+                    {user ? <button className="btn btn-secondary btn-sm" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</button> : <Link href="/login?next=/builder" className="btn btn-ghost btn-sm">Log in to save</Link>}
                   </div>
                 )}
               </div>
