@@ -9,7 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { completeLesson, fetchProgress } from "@/lib/api";
 
 export default function LearnPage() {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const uid = user?.id;
   const [active, setActive] = useState(LESSONS[0].id);
   const [done, setDone] = useState<string[]>([]);
@@ -69,7 +69,7 @@ export default function LearnPage() {
             ))}
             {error && <div className="alert alert-danger small">{error}</div>}
             <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", marginTop: "1.5rem" }}>
-              <button className="btn btn-primary" onClick={complete}>
+              <button className="btn btn-primary" onClick={complete} disabled={loading}>
                 <CheckCircle size={16} /> {done.includes(lesson.id) ? "Completed" : "Mark complete"}{idx < LESSONS.length - 1 ? " & next" : ""}
               </button>
               {lesson.tryIt && <Link href={lesson.tryIt.href} className="btn btn-secondary">{lesson.tryIt.label} <ArrowRight size={15} /></Link>}
