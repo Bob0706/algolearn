@@ -1,6 +1,5 @@
 // lib/api.ts — browser-side client for the AlgoLearn API routes
 
-import { getIdToken } from "./firebase";
 import type {
   BacktestResult, CandleSignal, DataSource, Instrument, IntradayBar, LedgerKind, LedgerReceipt, OHLCVBar, Quote, StrategyTemplate,
 } from "./types";
@@ -15,18 +14,31 @@ export class ApiError extends Error {
   }
 }
 
+// The login this tab believes it is using ("guest" when signed out). Sent with every request so
+// the server can refuse to act if another tab has since switched the cookie to a different login.
+let sessionKey: string | null = null;
+export const setSessionKey = (key: string | null) => { sessionKey = key; };
+export const SESSION_CHANGED_EVENT = "algolearn:session-changed";
+
+function authHeaders(init?: HeadersInit): Headers {
+  const headers = new Headers(init);
+  if (sessionKey) headers.set("x-al-session", sessionKey);
+  return headers;
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers = new Headers(init.headers);
+  const headers = authHeaders(init.headers);
   if (init.body) headers.set("Content-Type", "application/json");
-  const token = await getIdToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
   let res: Response;
   try {
-    res = await fetch(`${API_URL}${path}`, { ...init, headers });
+    res = await fetch(`${API_URL}${path}`, { ...init, headers, credentials: "same-origin", cache: "no-store" });
   } catch {
     throw new ApiError("Network error: could not reach the AlgoLearn server.", 0);
   }
   const data = await res.json().catch(() => ({}));
+  if (res.status === 409 && data.code === "SESSION_CHANGED" && typeof window !== "undefined") {
+    window.dispatchEvent(new Event(SESSION_CHANGED_EVENT));
+  }
   if (!res.ok) throw new ApiError(data.detail || `Request failed (${res.status})`, res.status, data.errors, data.logs);
   return data as T;
 }
@@ -146,10 +158,7 @@ export const fetchRecords = (opts: { kind?: LedgerKind; mine?: boolean; limit?: 
 };
 
 export async function downloadProof(id: string) {
-  const headers = new Headers();
-  const token = await getIdToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(`${API_URL}/api/ledger/records/${id}?proof=1`, { headers });
+  const res = await fetch(`${API_URL}/api/ledger/records/${id}?proof=1`, { headers: authHeaders(), credentials: "same-origin" });
   if (!res.ok) throw new ApiError((await res.json().catch(() => ({}))).detail || "Could not download proof", res.status);
   const url = URL.createObjectURL(await res.blob());
   const a = document.createElement("a");
@@ -164,3 +173,30 @@ export interface LeaderboardRow {
   closedTrades: number; endDate: string; recordedAt: string;
 }
 export const fetchLeaderboard = () => request<{ rows: LeaderboardRow[]; rules: string }>("/api/ledger/leaderboard");
+
+// ─── accounts & sessions ────────────────────────────────────────────────
+export interface AccountUser { id: string; name: string; email: string }
+export interface MeResponse { user: AccountUser | null; session?: { id: string; createdAt: string; expiresAt?: string } }
+export interface ActiveSession { id: string; device: string; createdAt: string; expiresAt: string; current: boolean }
+
+export const fetchMe = () => request<MeResponse>("/api/auth/me");
+export const signUp = (body: { name: string; email: string; password: string }) => post<MeResponse>("/api/auth/signup", body);
+export const logIn = (body: { email: string; password: string }) => post<MeResponse>("/api/auth/login", body);
+export const logOut = () => post<{ ok: true }>("/api/auth/logout", {});
+export const fetchSessions = () => request<{ sessions: ActiveSession[] }>("/api/auth/sessions");
+export const endSessionById = (id: string) => request<{ ended: number }>(`/api/auth/sessions?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+export const endOtherSessions = () => request<{ ended: number }>("/api/auth/sessions?others=1", { method: "DELETE" });
+
+// ─── the signed-in user's own data (stored server-side, never in the browser) ──
+export interface SavedStrategy {
+  id: string; name: string; description: string; code: string; symbol?: string;
+  backtestResult?: Record<string, number>; ledgerId?: string; createdAt: string;
+}
+export interface SimulatorStats { sessions: number; totalTrades: number; wins: number; losses: number; totalPnL: number }
+export interface Progress { lessonsCompleted: string[]; simulatorStats: SimulatorStats }
+
+export const fetchMyStrategies = () => request<{ strategies: SavedStrategy[] }>("/api/me/strategies");
+export const saveMyStrategy = (s: Omit<SavedStrategy, "id" | "createdAt">) => post<{ strategy: SavedStrategy }>("/api/me/strategies", s);
+export const deleteMyStrategy = (id: string) => request<{ ok: true }>(`/api/me/strategies/${encodeURIComponent(id)}`, { method: "DELETE" });
+export const fetchProgress = () => request<Progress>("/api/me/progress");
+export const completeLesson = (lessonId: string) => post<Progress>("/api/me/progress", { lessonId });

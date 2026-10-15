@@ -2,7 +2,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { InputError } from "../stockService";
-import { AuthError } from "./auth";
+import { AuthError, SessionChangedError } from "./auth";
+import { AccountError } from "./accounts";
 import { EngineUnavailableError, StrategyError } from "./engineClient";
 import { rateLimit } from "./rateLimit";
 import { MarketDataError } from "./marketFeed";
@@ -10,7 +11,9 @@ import { MarketDataError } from "./marketFeed";
 export function errorResponse(err: unknown): NextResponse {
   if (err instanceof InputError) return NextResponse.json({ detail: err.message }, { status: 400 });
   if (err instanceof MarketDataError) return NextResponse.json({ detail: err.message }, { status: 503 });
+  if (err instanceof SessionChangedError) return NextResponse.json({ detail: err.message, code: "SESSION_CHANGED" }, { status: 409 });
   if (err instanceof AuthError) return NextResponse.json({ detail: err.message }, { status: 401 });
+  if (err instanceof AccountError) return NextResponse.json({ detail: err.message }, { status: err.status });
   if (err instanceof StrategyError)
     return NextResponse.json({ detail: err.message, errors: err.errors, logs: err.logs }, { status: 422 });
   if (err instanceof EngineUnavailableError)

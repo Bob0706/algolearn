@@ -20,7 +20,8 @@ Learn algorithmic trading on Indian markets:
 | **Simulator** (`/simulator`) | Server-authoritative paper trading. The server reveals candles one at a time (no peeking, no rewinding), fills your orders, and flags candlestick-pattern signals. All signals are committed to the ledger before you see them. A "live signal" panel runs the same engine on today's data. |
 | **Ledger** (`/ledger`) | Explorer and verifier for every strategy, backtest, signal batch, live signal and simulator result. Includes downloadable proof bundles and a leaderboard of server-computed, ledger-backed scores. |
 | **Learn** (`/learn`) | 9 lessons, from candlesticks to backtesting pitfalls, Indian market rules and verifiable track records. |
-| **Dashboard** (`/dashboard`) | Saved strategies (one click to backtest), lesson progress, cumulative simulator stats, and your ledger records. |
+| **Accounts** (`/login`) | Sign up / log in with email and password. Every login starts its own isolated session (details below). |
+| **Dashboard** (`/dashboard`) | Saved strategies (one click to backtest), lesson progress, cumulative simulator stats, your ledger records, and your **active sessions** (sign out any device, or all others). |
 
 ## Market data: every NSE & BSE company
 
@@ -43,7 +44,7 @@ npm run symbols:sync -- --nse EQUITY_L.csv --sme SME_EQUITY_L.csv --bse bse.json
 
 ```
 Browser (Next.js pages)
-   │  Firebase ID token (optional)
+   │  HttpOnly session cookie (al_session) + x-al-session tab check
    ▼
 Next.js API routes ──────────────► NSE/BSE company lists · Yahoo Finance / Upstox (quotes, intraday, daily)
    │   │
@@ -122,7 +123,16 @@ The navbar dot shows the ledger state: green = Besu, amber = local dev ledger, r
 
 ### Optional services
 - **Gemini**: set `GEMINI_API_KEY` (and optionally `GEMINI_MODEL`) for free-form strategy translation.
-- **Firebase**: set the `NEXT_PUBLIC_FIREBASE_*` values and enable Google sign-in. Records are then attributed to signed-in users, and leaderboard entries need a signed-in user. Without Firebase, a local "Demo Trader" account stores data in the browser.
+- **Redis for accounts**: accounts, sessions and saved data live in Upstash Redis when `KV_REST_API_URL`/`KV_REST_API_TOKEN` are set. Without them, local development keeps them in memory (lost on restart).
+
+## Accounts and session isolation
+
+- **Credentials:** the database stores the email, name and a salted **scrypt** hash of the password (never the password). Logins are rate-limited per email and per IP, and the error never reveals whether the email exists.
+- **A new session for every login:** each successful login or sign-up creates a fresh random 256-bit token. The browser keeps it in an `HttpOnly`, `SameSite=Lax`, `Secure` cookie that page scripts cannot read; the database keeps only its SHA-256, so a database leak exposes no usable tokens. Logging in on a browser that already had a session ends that old session first. Sessions expire after 7 days.
+- **No overlap between sessions:** simulator games belong to the login session that started them, so another session (even of the same user) cannot read or play them. Saved strategies, lesson progress and simulator totals are stored per account on the server, never in the browser, so people sharing a computer don't see each other's data. Simulator totals are added by the server when a game ends, so they can't be inflated from the browser.
+- **No interference between tabs:** every request carries the session the tab believes it is using (`x-al-session`). If another tab has since logged out or into a different account, the server answers `409` instead of acting as the wrong user, and the tab reloads under the current login. Tabs also tell each other about logins/logouts (`BroadcastChannel`).
+- **Control:** the dashboard lists every active session (device, sign-in time, expiry) and can end one or all others. Logging out ends only the current session.
+- **API:** `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `GET|DELETE /api/auth/sessions`, `GET|POST /api/me/strategies`, `DELETE /api/me/strategies/:id`, `GET|POST /api/me/progress`.
 
 ## Deploy to Vercel (public URL)
 
@@ -140,7 +150,6 @@ Vercel hosts the website and API. Two parts can't run on Vercel and live elsewhe
    | `LEDGER_MODE` | `local` (tamper-evident hash chain in Redis), or `besu` with the three `LEDGER_*` Besu variables once you run a node |
    | `LEDGER_SUBJECT_SALT` | a long random string; never change it |
    | `GEMINI_API_KEY` | optional, for free-form AI strategy translation |
-   | `NEXT_PUBLIC_FIREBASE_*` | optional; also add the Vercel domain under Firebase → Authentication → Authorized domains |
 
 5. **Redeploy** (Deployments → ⋯ → Redeploy) so the variables apply. Then open `/api/health`: `engine.ok`, `ledger.ok` and `storage.persistent` should all be `true`.
 
@@ -195,7 +204,7 @@ The Besu tests cover:
 | 7 | Simulator: the full future price series was sent to the browser, a slider allowed rewinding and trading at past prices, and P&L was computed and reported by the client. | Server-authoritative sessions: forward-only reveal, server-side fills and scoring, ledger-backed results. |
 | 8 | Candlestick engine: Morning/Evening Star checks were inverted, and reversal patterns had no trend context. | Patterns corrected, a trend filter added, and the engine versioned (`candlestick-v2`). |
 | 9 | The Supertrend template used chained assignment (a silent no-op on modern pandas) and fired Buy on every bar. | Correct Supertrend with flip signals. RSI now uses Wilder smoothing. |
-| 10 | A failed Google sign-in silently logged you in as a shared demo user. Simulator stats overwrote instead of adding up. The Firestore query needed a missing index. The dashboard win rate could show `NaN%`. | All fixed. Demo mode only applies when Firebase is not configured, and is clearly labelled. |
+| 10 | A failed sign-in silently logged you in as a shared demo user. Simulator stats overwrote instead of adding up, and were reported by the browser. User data lived in browser storage, so people sharing a computer saw each other's work. | Real email/password accounts with a new isolated session per login; all user data is stored per account on the server; simulator totals are added by the server. |
 | 11 | The Gemini prompt interpolated user text directly and the generated code was never validated. | System instruction plus delimited user data, validator-checked output with one corrective retry, and a safe fallback. |
 | 12 | No input validation or rate limits on API routes. | Symbol/period/capital validation, body size limits, per-IP rate limits, consistent JSON errors. |
 | 13 | The landing page claimed "India's #1", "10,000+ students" and fixed "+24.3% backtested" returns. | Replaced with verifiable statements. |
@@ -225,7 +234,8 @@ lib/
   stockService.ts       validated daily history (synthetic fallback off by default)
   ledger/               AlgoLedger ABI, canonical hashing, Besu/local ledger, record store
   server/               universe (all NSE/BSE listings), marketFeed (Yahoo/Upstox quotes & candles),
-                        engine client, auth (Firebase JWT), simulator sessions, rate limiting
+                        engine client, accounts + sessions (accounts.ts, auth.ts, kv.ts),
+                        per-user data (userData.ts), simulator sessions, rate limiting
 scripts/                sync-symbols.ts (download/import NSE & BSE company lists)
 backend/                FastAPI strategy engine (validator, sandbox runner, tests, Dockerfile)
 blockchain/

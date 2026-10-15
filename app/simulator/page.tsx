@@ -11,7 +11,6 @@ import {
 import { ApiError, fetchLiveSignal, LiveSignal, SimView, startSimulation, stepSimulation } from "@/lib/api";
 import type { CandleSignal, OHLCVBar } from "@/lib/types";
 import { useAuth } from "@/contexts/AuthContext";
-import { addSimulatorSession } from "@/lib/firebase";
 import CandleChart, { ChartMarker } from "@/components/CandleChart";
 import LedgerReceipts from "@/components/LedgerReceipts";
 import DataSourceBanner from "@/components/DataSourceBanner";
@@ -48,7 +47,7 @@ export default function SimulatorPage() {
   }, []);
 
   // a different user must not continue someone else's session
-  useEffect(() => { reset(); }, [user?.uid, reset]);
+  useEffect(() => { reset(); }, [user?.id, reset]);
 
   const merge = (v: SimView) => {
     setView(v);
@@ -97,14 +96,6 @@ export default function SimulatorPage() {
     const id = setInterval(() => step({ advance: 1 }), speed);
     return () => clearInterval(id);
   }, [playing, speed, view, step]);
-
-  // record the finished session in the user's running totals once
-  useEffect(() => {
-    const r = view?.result;
-    if (!user || !view?.finished || !r || reported.current === view.sessionId) return;
-    reported.current = view.sessionId;
-    addSimulatorSession(user, { trades: view.trades.length, wins: r.wins, losses: r.losses, pnl: r.finalValue - INITIAL_CAPITAL }).catch(() => {});
-  }, [view, user]);
 
   const markers = useMemo<ChartMarker[]>(() => [
     ...signals.map(s => ({

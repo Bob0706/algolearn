@@ -33,7 +33,7 @@ export default function RecordPage({ params }: { params: Promise<{ id: string }>
     setError("");
     verifyRecord(id).then(setResult).catch(e => setError(e instanceof ApiError ? e.message : "Verification failed."));
     fetchRecord(id).then(setRecord).catch(() => setRecord(null));
-  }, [id, user?.uid]);
+  }, [id, user?.id]);
 
   const upload = async (file: File) => {
     setOwn(null); setError("");

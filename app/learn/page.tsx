@@ -6,18 +6,19 @@ import Link from "next/link";
 import { ArrowRight, CheckCircle, Circle, Clock } from "lucide-react";
 import { LESSONS } from "@/lib/lessons";
 import { useAuth } from "@/contexts/AuthContext";
-import { getUserDoc, markLessonComplete } from "@/lib/firebase";
+import { completeLesson, fetchProgress } from "@/lib/api";
 
 export default function LearnPage() {
   const { user } = useAuth();
+  const uid = user?.id;
   const [active, setActive] = useState(LESSONS[0].id);
   const [done, setDone] = useState<string[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!user) { setDone([]); return; }
-    getUserDoc(user).then(d => setDone(d.lessonsCompleted)).catch(() => {});
-  }, [user]);
+    if (!uid) { setDone([]); return; }
+    fetchProgress().then(d => setDone(d.lessonsCompleted)).catch(() => {});
+  }, [uid]);
 
   const lesson = LESSONS.find(l => l.id === active)!;
   const idx = LESSONS.indexOf(lesson);
@@ -25,7 +26,7 @@ export default function LearnPage() {
   const complete = async () => {
     setError("");
     if (user) {
-      try { await markLessonComplete(user, lesson.id); } catch (e) { setError(e instanceof Error ? e.message : "Could not save progress."); return; }
+      try { setDone((await completeLesson(lesson.id)).lessonsCompleted); } catch (e) { setError(e instanceof Error ? e.message : "Could not save progress."); return; }
     }
     setDone(d => (d.includes(lesson.id) ? d : [...d, lesson.id]));
     if (idx < LESSONS.length - 1) { setActive(LESSONS[idx + 1].id); window.scrollTo({ top: 0, behavior: "smooth" }); }
@@ -49,7 +50,7 @@ export default function LearnPage() {
                 <span><span className="small muted">{i + 1}.</span> {l.title}</span>
               </button>
             ))}
-            {!user && <p className="small muted" style={{ padding: "0.5rem" }}>Sign in to save your progress.</p>}
+            {!user && <p className="small muted" style={{ padding: "0.5rem" }}><Link href="/login?next=/learn">Log in</Link> to save your progress.</p>}
           </div>
 
           <article className="card lesson-body">

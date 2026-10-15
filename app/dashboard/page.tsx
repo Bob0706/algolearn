@@ -4,10 +4,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { BarChart2, BookOpen, Check, Copy, LayoutDashboard, LogIn, ShieldCheck, Target, TrendingUp, Zap } from "lucide-react";
+import { BarChart2, BookOpen, Check, Copy, LayoutDashboard, LogIn, Monitor, ShieldCheck, Target, Trash2, TrendingUp, UserPlus, Zap } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { getUserDoc, getUserStrategies, SavedStrategy, UserDoc } from "@/lib/firebase";
-import { fetchRecords, LedgerRecordView } from "@/lib/api";
+import {
+  ActiveSession, deleteMyStrategy, endOtherSessions, endSessionById, fetchMyStrategies, fetchProgress, fetchRecords,
+  fetchSessions, LedgerRecordView, Progress, SavedStrategy,
+} from "@/lib/api";
 import { setHandoff } from "@/lib/handoff";
 import { LESSONS } from "@/lib/lessons";
 
@@ -17,22 +19,34 @@ const KIND_LABEL: Record<string, string> = {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { user, loading, signIn, demoMode } = useAuth();
+  const { user, sessionId, loading } = useAuth();
+  const uid = user?.id;
   const [strategies, setStrategies] = useState<SavedStrategy[]>([]);
-  const [userData, setUserData] = useState<UserDoc | null>(null);
+  const [userData, setUserData] = useState<Progress | null>(null);
+  const [sessions, setSessions] = useState<ActiveSession[]>([]);
   const [records, setRecords] = useState<LedgerRecordView[]>([]);
   const [copied, setCopied] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!user) return;
+    // a different login never sees the previous one's data, even for a moment
+    setStrategies([]); setUserData(null); setRecords([]); setSessions([]); setError("");
+    if (!uid) return;
     setBusy(true);
-    Promise.all([getUserStrategies(user), getUserDoc(user), user.isDemo ? Promise.resolve({ records: [] }) : fetchRecords({ mine: true, limit: 20 })])
-      .then(([s, d, r]) => { setStrategies(s); setUserData(d); setRecords(r.records); })
+    Promise.all([fetchMyStrategies(), fetchProgress(), fetchRecords({ mine: true, limit: 20 }), fetchSessions()])
+      .then(([s, d, r, ss]) => { setStrategies(s.strategies); setUserData(d); setRecords(r.records); setSessions(ss.sessions); })
       .catch(e => setError(e?.message || "Could not load your data."))
       .finally(() => setBusy(false));
-  }, [user]);
+  }, [uid, sessionId]);
+
+  const reloadSessions = () => fetchSessions().then(r => setSessions(r.sessions)).catch(e => setError(e?.message || "Could not load sessions."));
+  const endOne = async (id: string) => { try { await endSessionById(id); } catch (e: any) { setError(e?.message); } reloadSessions(); };
+  const endOthers = async () => { try { await endOtherSessions(); } catch (e: any) { setError(e?.message); } reloadSessions(); };
+  const removeStrategy = async (id: string) => {
+    if (!confirm("Delete this saved strategy?")) return;
+    try { await deleteMyStrategy(id); setStrategies(list => list.filter(s => s.id !== id)); } catch (e: any) { setError(e?.message || "Could not delete."); }
+  };
 
   if (loading) return <div className="page" style={{ display: "grid", placeItems: "center" }}><span className="spinner spinner-lg" /></div>;
 
@@ -41,9 +55,12 @@ export default function DashboardPage() {
       <div className="page">
         <div className="container" style={{ paddingTop: "5rem", textAlign: "center", maxWidth: 480 }}>
           <LayoutDashboard size={40} style={{ color: "var(--accent)", margin: "0 auto 1rem" }} />
-          <h1 style={{ fontWeight: 800, fontSize: "1.5rem" }}>Sign in to see your dashboard</h1>
+          <h1 style={{ fontWeight: 800, fontSize: "1.5rem" }}>Log in to see your dashboard</h1>
           <p className="muted" style={{ margin: "0.75rem 0 1.5rem" }}>Save strategies, track lessons and simulator stats, and see your verified ledger records.</p>
-          <button className="btn btn-primary btn-lg" onClick={signIn}><LogIn size={18} /> {demoMode ? "Start demo account" : "Sign in with Google"}</button>
+          <div style={{ display: "flex", gap: "0.6rem", justifyContent: "center", flexWrap: "wrap" }}>
+            <Link href="/login?next=/dashboard" className="btn btn-primary btn-lg"><LogIn size={18} /> Log in</Link>
+            <Link href="/login?mode=signup&next=/dashboard" className="btn btn-secondary btn-lg"><UserPlus size={18} /> Create account</Link>
+          </div>
         </div>
       </div>
     );
@@ -64,10 +81,10 @@ export default function DashboardPage() {
     <div className="page">
       <div className="container" style={{ paddingTop: "2rem", paddingBottom: "3rem" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1.5rem" }}>
-          {user.photoURL && <img src={user.photoURL} alt="" width={48} height={48} style={{ borderRadius: "50%" }} />}
+          <span className="avatar" style={{ width: 48, height: 48, fontSize: "1.3rem" }}>{user.name.slice(0, 1).toUpperCase()}</span>
           <div>
-            <h1 className="page-title">Welcome, {user.displayName?.split(" ")[0] ?? "trader"}!</h1>
-            <p className="page-subtitle">{user.isDemo ? "Demo account: your data is stored only in this browser." : "Your algo-trading progress."}</p>
+            <h1 className="page-title">Welcome, {user.name.split(" ")[0]}!</h1>
+            <p className="page-subtitle">{user.email} · your progress is saved to your account, not this browser.</p>
           </div>
         </div>
         {error && <div className="alert alert-danger small" style={{ marginBottom: "1rem" }}>{error}</div>}
@@ -122,6 +139,7 @@ export default function DashboardPage() {
                     <button className="btn-icon" title="Backtest this strategy" onClick={() => { setHandoff({ code: s.code, name: s.name }); router.push("/backtest"); }}>
                       <BarChart2 size={14} />
                     </button>
+                    <button className="btn-icon" title="Delete" onClick={() => removeStrategy(s.id)}><Trash2 size={14} /></button>
                   </div>
                 ))}
               </div>
@@ -133,9 +151,7 @@ export default function DashboardPage() {
               <h2 className="card-title">My ledger records</h2>
               <Link href="/ledger" className="btn btn-secondary btn-sm">Explorer</Link>
             </div>
-            {user.isDemo ? (
-              <p className="small muted">Demo accounts are anonymous, so records can't be attributed to you. Configure Firebase and sign in with Google.</p>
-            ) : !records.length ? (
+            {!records.length ? (
               <p className="small muted">Run a backtest or finish a simulation to create verifiable records.</p>
             ) : (
               <table className="table">
@@ -152,6 +168,28 @@ export default function DashboardPage() {
               </table>
             )}
           </div>
+
+        <div className="card" style={{ gridColumn: "1 / -1" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", gap: "0.5rem", flexWrap: "wrap" }}>
+            <div>
+              <h2 className="card-title">Active sessions</h2>
+              <p className="small muted">Every login gets its own isolated session. End any you don&apos;t recognise.</p>
+            </div>
+            {sessions.length > 1 && <button className="btn btn-secondary btn-sm" onClick={endOthers}>Sign out all other sessions</button>}
+          </div>
+          <table className="table">
+            <tbody>
+              {sessions.map(s => (
+                <tr key={s.id}>
+                  <td><Monitor size={14} style={{ display: "inline", verticalAlign: "-2px" }} /> {s.device} {s.current && <span className="badge badge-success">this browser</span>}</td>
+                  <td className="small muted">signed in {new Date(s.createdAt).toLocaleString("en-IN")}</td>
+                  <td className="small muted hide-sm">expires {new Date(s.expiresAt).toLocaleDateString("en-IN")}</td>
+                  <td style={{ textAlign: "right" }}>{!s.current && <button className="btn btn-ghost btn-sm" onClick={() => endOne(s.id)}>Sign out</button>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         </div>
       </div>
     </div>
