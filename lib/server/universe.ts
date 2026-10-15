@@ -15,6 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { POPULAR_SYMBOLS } from "../marketData";
 import type { Instrument } from "../types";
+import { after } from "next/server";
 import { redis, redisEnabled } from "./redis";
 
 const NSE_URL = process.env.NSE_EQUITY_LIST_URL || "https://archives.nseindia.com/content/equities/EQUITY_L.csv";
@@ -294,7 +295,15 @@ export async function getUniverse(): Promise<Universe> {
     await refresh();
     return g.__algolearnUniverse;
   }
-  if ((age > MAX_AGE_MS || !u.complete) && !recentlyChecked) void refresh();
+  if ((age > MAX_AGE_MS || !u.complete) && !recentlyChecked) {
+    // On serverless hosts an un-awaited promise may be frozen once the response is sent;
+    // after() keeps the instance alive until the refresh finishes.
+    try {
+      after(() => refresh());
+    } catch {
+      void refresh(); // outside a request (scripts, tests)
+    }
+  }
   return u;
 }
 
