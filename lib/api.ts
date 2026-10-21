@@ -200,3 +200,18 @@ export const saveMyStrategy = (s: Omit<SavedStrategy, "id" | "createdAt">) => po
 export const deleteMyStrategy = (id: string) => request<{ ok: true }>(`/api/me/strategies/${encodeURIComponent(id)}`, { method: "DELETE" });
 export const fetchProgress = () => request<Progress>("/api/me/progress");
 export const completeLesson = (lessonId: string) => post<Progress>("/api/me/progress", { lessonId });
+
+// ─── charges assistant ────────────────────────────────────────────────────
+export interface ChatTurn { role: "user" | "assistant"; text: string }
+export interface ChatResponse {
+  reply: string;
+  calc?: import("./charges").ChargeBreakdown;
+  context?: import("./charges").ChargeInput;
+  suggestions: string[];
+  matched: string;
+  source: "ai" | "rules";
+  model?: string;
+}
+
+export const askChargesAssistant = (message: string, history: ChatTurn[], context?: import("./charges").ChargeInput) =>
+  post<ChatResponse>("/api/chat", { message, history, context });
