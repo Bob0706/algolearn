@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bhumik Rajesh Patel — Resume</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root { --ink: #111827; --muted: #4b5563; --accent: #6d28d9; --accent2: #0891b2; --line: #e5e7eb; }
+  body { font-family: Inter, system-ui, sans-serif; color: var(--ink); font-size: 9.3pt; line-height: 1.38; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .page { width: 210mm; min-height: 297mm; padding: 11mm 13mm 9mm; }
+  header { display: flex; justify-content: space-between; align-items: flex-end; padding-bottom: 9px; border-bottom: 2.5px solid transparent; border-image: linear-gradient(90deg, var(--accent), var(--accent2)) 1; }
+  h1 { font-size: 23pt; font-weight: 800; letter-spacing: -0.5px; line-height: 1.1; }
+  .role { font-size: 11pt; font-weight: 600; color: var(--accent); margin-top: 3px; }
+  .contact { text-align: right; font-size: 8.8pt; color: var(--muted); line-height: 1.6; }
+  .contact a { color: var(--ink); text-decoration: none; }
+  section { margin-top: 9px; }
+  h2 { font-size: 9.5pt; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase; color: var(--accent); margin-bottom: 5px; display: flex; align-items: center; gap: 8px; }
+  h2::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .summary { color: #1f2937; }
+  .item { margin-bottom: 5px; }
+  .row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .title { font-weight: 700; font-size: 10pt; }
+  .org { font-weight: 500; color: var(--muted); }
+  .date { font-size: 8.6pt; color: var(--muted); white-space: nowrap; font-weight: 500; }
+  .stack { font-size: 8.4pt; color: var(--accent2); font-weight: 600; margin: 1px 0 2px; }
+  ul { padding-left: 14px; }
+  li { margin: 1.5px 0; }
+  li::marker { color: var(--accent); }
+  .skills { display: grid; grid-template-columns: 118px 1fr; row-gap: 3px; }
+  .skills b { font-weight: 600; }
+  .link { font-size: 8.4pt; color: var(--muted); font-weight: 500; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div>
+      <h1>Bhumik Rajesh Patel</h1>
+      <div class="role">Full-Stack Developer &amp; FinTech Engineer</div>
+    </div>
+    <div class="contact">
+      <a href="mailto:bp877396@gmail.com">bp877396@gmail.com</a><br>
+      <a href="https://www.linkedin.com/in/bhumikpatel0706">linkedin.com/in/bhumikpatel0706</a><br>
+      <a href="https://github.com/Bob0706">github.com/Bob0706</a>
+    </div>
+  </header>
+
+  <section>
+    <h2>Profile</h2>
+    <p class="summary">Full-stack developer focused on FinTech, building trading, analytics and blockchain-verified platforms for Indian markets from the database up to the UI. A confident, hard-working team leader who has managed volunteer teams at hackathons, and someone who believes in continuous learning and in exploring new ventures.</p>
+  </section>
+
+  <section>
+    <h2>Experience</h2>
+    <div class="item">
+      <div class="row"><div><span class="title">Python Developer Intern</span> · <span class="org">Gatha Technologies</span></div><span class="date">2025</span></div>
+      <ul>
+        <li>Worked as a Python developer, building and maintaining backend features for the company's projects.</li>
+        <li>Worked with the development team on writing, testing and debugging production Python code.</li>
+      </ul>
+    </div>
+    <div class="item">
+      <div class="row"><div><span class="title">Database Operations</span> · <span class="org">PCPS Samaj App</span></div><span class="date">Community project</span></div>
+      <ul>
+        <li>Handled database operations for the community's member app: managing, updating and querying member records and keeping the data accurate.</li>
+      </ul>
+    </div>
+    <div class="item">
+      <div class="row"><div><span class="title">Volunteer &amp; Team Lead</span> · <span class="org">Hackathons</span></div><span class="date">Leadership</span></div>
+      <ul>
+        <li>Volunteered at hackathons and managed teams: coordinated people and tasks, and kept events running to schedule.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Projects</h2>
+    <div class="item">
+      <div class="row"><span class="title">AlgoLearn India — Algorithmic Trading Learning Platform</span><span class="link">github.com/Bob0706/algolearn</span></div>
+      <div class="stack">Next.js · React · TypeScript · Python · Solidity · Hyperledger Besu · ethers.js · Gemini API · Docker</div>
+      <ul>
+        <li>Turns plain-English trading strategies into Python code (Gemini, plus a rule-based parser fallback) and backtests them on live NSE/BSE data for every listed company.</li>
+        <li>Built a sandboxed Python backtesting engine with next-bar fills, Indian charges (STT, stamp duty, GST), slippage, a buy-and-hold benchmark and automatic look-ahead-bias detection.</li>
+        <li>Records every strategy, backtest and signal on a Hyperledger Besu blockchain through a Solidity contract, with downloadable proof bundles and a ledger-backed leaderboard.</li>
+      </ul>
+    </div>
+    <div class="item">
+      <div class="row"><span class="title">TradeChain India — Financial Trading Terminal</span><span class="link">Private repository</span></div>
+      <div class="stack">React 19 · TypeScript · Vite · Tailwind CSS · Firebase · Express · Gemini API</div>
+      <ul>
+        <li>Paper-trading terminal for Indian equities, with an order-matching engine, historical market replay and portfolio and order tracking.</li>
+        <li>Adds AI research and an AI tutor, a learning academy with quizzes and badges, a community leaderboard and blockchain-style trade provenance.</li>
+      </ul>
+    </div>
+    <div class="two">
+      <div class="item">
+        <div class="title">Transrec Asset Management System</div>
+        <div class="stack">Python · Flask · MySQL</div>
+        <ul><li>Monitors the health and lifecycle of industrial machines.</li></ul>
+      </div>
+      <div class="item">
+        <div class="title">PicHub — Thumbnail Marketplace</div>
+        <div class="stack">Python · Flask · SQLAlchemy · MySQL</div>
+        <ul><li>Thumbnail management system and marketplace where designers post their work.</li></ul>
+      </div>
+    </div>
+    <div class="item">
+      <div class="title">API-Documentor</div>
+      <div class="stack">Node.js · Express · MongoDB · REST</div>
+      <ul><li>Generates API documentation in plain, readable language tailored to the reader's profession, with auth, documentation and API-testing endpoints.</li></ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Skills</h2>
+    <div class="skills">
+      <b>Languages</b><span>Python, JavaScript, TypeScript, SQL, Solidity, HTML, CSS</span>
+      <b>Frontend</b><span>React, Next.js, Vite, Tailwind CSS, Framer Motion</span>
+      <b>Backend</b><span>Flask, Node.js, Express, REST APIs</span>
+      <b>Databases</b><span>MySQL, MongoDB, Firebase / Firestore, SQLAlchemy</span>
+      <b>Blockchain &amp; AI</b><span>Hyperledger Besu, ethers.js, smart contracts, Google Gemini API</span>
+      <b>Tools</b><span>Git, GitHub, Docker, Vitest, pytest, Render</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Education</h2>
+    <div class="item">
+      <div class="row"><div><span class="title">B.Tech, Computer Science &amp; Engineering</span> · <span class="org">Pimpri Chinchwad University</span></div><span class="date">2025 – Present</span></div>
+    </div>
+    <div class="item">
+      <div class="row"><div><span class="title">Diploma, Information Technology</span> · <span class="org">Pimpri Chinchwad Polytechnic</span></div><span class="date">2022 – 2025</span></div>
+    </div>
+  </section>
+</div>
+</body>
+</html>
