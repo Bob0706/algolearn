@@ -231,8 +231,18 @@
     $('#mcMail').href = mailto;
     $('#mcGmail').href = `https://mail.google.com/mail/?view=cm&fs=1&to=${TO}&su=${q(subject)}&body=${q(body)}`;
     $('#mcOutlook').href = `https://outlook.live.com/mail/0/deeplink/compose?to=${TO}&subject=${q(subject)}&body=${q(body)}`;
-    $('#formNote').textContent = 'Your email app should open with everything filled in. Just press Send.';
     $('#mailChoice').hidden = false;
-    location.href = mailto;
+    let embedded = true;
+    try { embedded = window.self !== window.top; } catch (err) {}
+    if (embedded) {
+      // Inside an embedded preview, opening a mail app replaces the page with a "blocked" screen,
+      // so open the pre-filled Gmail draft in a new tab instead and keep the page in place.
+      $('#mcMail').hidden = true;
+      $('#formNote').textContent = 'A Gmail draft with everything filled in should open in a new tab. Just press Send.';
+      $('#mcGmail').click();
+    } else {
+      $('#formNote').textContent = 'Your email app should open with everything filled in. Just press Send.';
+      location.href = mailto;
+    }
   });
 })();
