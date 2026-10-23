@@ -401,7 +401,15 @@
         <label class="field"><input type="email" name="email" required placeholder=" "><span>Your email</span></label>
         <label class="field"><textarea name="message" rows="5" required placeholder=" "></textarea><span>Your message</span></label>
         <button type="submit" class="btn btn-glow magnetic full">Send message <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg></button>
-        <p class="form-note" id="formNote">Opens your email app with the message ready to send.</p>
+        <p class="form-note" id="formNote">Opens your email app with my address and your message filled in. You just press Send.</p>
+        <div class="mail-choice" id="mailChoice" hidden>
+          <span>Email app didn't open? Send it with:</span>
+          <div class="mail-btns">
+            <a id="mcGmail" target="_blank" rel="noopener">Gmail</a>
+            <a id="mcOutlook" target="_blank" rel="noopener">Outlook</a>
+            <a id="mcMail">Mail app</a>
+          </div>
+        </div>
       </form>
     </div>
   </div>

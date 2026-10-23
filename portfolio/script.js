@@ -218,13 +218,21 @@
   addEventListener('resize', resize);
   draw();
 
-  /* ---------- Contact form → opens the visitor's mail app ---------- */
+  /* ---------- Contact form → opens the visitor's mail app, pre-filled ---------- */
+  const TO = 'bp877396@gmail.com';
   $('#contactForm').addEventListener('submit', e => {
     e.preventDefault();
     const f = new FormData(e.target);
-    const subject = `Portfolio enquiry from ${f.get('name')}`;
-    const body = `${f.get('message')}\n\n— ${f.get('name')} (${f.get('email')})`;
-    location.href = `mailto:bp877396@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    $('#formNote').textContent = 'Your email app should open now. Thanks for reaching out! 🙌';
+    const name = f.get('name').trim(), from = f.get('email').trim();
+    const subject = `Portfolio enquiry from ${name}`;
+    const body = `Hi Bhumik,\n\n${f.get('message').trim()}\n\nRegards,\n${name}\n${from}`;
+    const q = encodeURIComponent;
+    const mailto = `mailto:${TO}?subject=${q(subject)}&body=${q(body)}`;
+    $('#mcMail').href = mailto;
+    $('#mcGmail').href = `https://mail.google.com/mail/?view=cm&fs=1&to=${TO}&su=${q(subject)}&body=${q(body)}`;
+    $('#mcOutlook').href = `https://outlook.live.com/mail/0/deeplink/compose?to=${TO}&subject=${q(subject)}&body=${q(body)}`;
+    $('#formNote').textContent = 'Your email app should open with everything filled in. Just press Send.';
+    $('#mailChoice').hidden = false;
+    location.href = mailto;
   });
 })();

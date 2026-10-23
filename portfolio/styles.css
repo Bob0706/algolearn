@@ -359,6 +359,11 @@ body.ready .hero-anim { animation: rise .9s cubic-bezier(.2,.8,.2,1) forwards; a
 .field input:focus + span, .field input:not(:placeholder-shown) + span,
 .field textarea:focus + span, .field textarea:not(:placeholder-shown) + span { top: 6px; font-size: 11.5px; color: var(--accent-2); }
 .form-note { font-size: 13px; color: var(--muted); text-align: center; }
+[hidden] { display: none !important; }
+.mail-choice { display: grid; gap: 10px; justify-items: center; font-size: 13px; color: var(--muted); animation: rise .5s ease both; }
+.mail-btns { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.mail-btns a { padding: 8px 18px; border-radius: 999px; font-weight: 600; font-size: 14px; color: var(--text); border: 1px solid var(--border); background: var(--surface-2); transition: border-color .3s, transform .25s; }
+.mail-btns a:hover { border-color: var(--accent); transform: translateY(-2px); }
 
 /* Footer */
 .footer { padding: 34px 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 14px; }
